@@ -1,0 +1,42 @@
+# 버전 관리
+.git
+.gitignore
+
+# 의존성
+node_modules
+npm-debug.log
+
+# 환경 설정
+.env
+.env.local
+.env.*.local
+
+# 로그
+logs
+*.log
+
+# 개발 도구 설정
+.vscode
+.idea
+*.swp
+*.swo
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+
+# 테스트 파일
+__tests__
+test
+tests
+coverage
+
+# 도커 파일
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 기타
+README.md
+LICENSE
+*.md 

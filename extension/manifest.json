@@ -1,0 +1,86 @@
+{
+  "manifest_version": 3,
+  "name": "FactChecker",
+  "version": "1.0.0",
+  "description": "실시간 미디어 콘텐츠의 진위 여부를 자동으로 검증하고 AR로 시각화하는 서비스",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "contextMenus",
+    "alarms",
+    "tabCapture"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.naver.com/*",
+    "*://*.kakao.com/*",
+    "*://*.yonhapnews.co.kr/*",
+    "*://*.yna.co.kr/*",
+    "*://*.chosun.com/*",
+    "*://*.donga.com/*",
+    "*://*.hani.co.kr/*",
+    "*://*.kmib.co.kr/*",
+    "*://*.khan.co.kr/*",
+    "*://*.mk.co.kr/*",
+    "*://*.mt.co.kr/*",
+    "*://*.sedaily.com/*",
+    "*://*.news.naver.com/*",
+    "*://*.news.daum.net/*",
+    "http://localhost:3000/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.naver.com/*",
+        "*://*.kakao.com/*",
+        "*://*.yonhapnews.co.kr/*",
+        "*://*.yna.co.kr/*",
+        "*://*.chosun.com/*",
+        "*://*.donga.com/*",
+        "*://*.hani.co.kr/*",
+        "*://*.kmib.co.kr/*",
+        "*://*.khan.co.kr/*",
+        "*://*.mk.co.kr/*",
+        "*://*.mt.co.kr/*",
+        "*://*.sedaily.com/*",
+        "*://*.news.naver.com/*",
+        "*://*.news.daum.net/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "content/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src http://localhost:3000/ https://*.googleapis.com/ https://*.tavily.com/ https://*.brave.com/"
+  }
+} 

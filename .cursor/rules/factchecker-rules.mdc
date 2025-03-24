@@ -1,0 +1,240 @@
+---
+description: FactChecker 실시간 미디어 콘텐츠 진위 검증 및 AR 시각화 시스템 자동 구현 규칙
+globs: ["*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.html", "*.css"]
+alwaysApply: false
+---
+
+## 1. 기본 원칙 및 아키텍처 패턴
+
+### 1.1 핵심 설계 원칙
+- **모듈화**: 4단계 프로세스(콘텐츠 인식/전처리 → 주장 감지/분류 → 팩트체크 → AR 시각화)를 독립 모듈로 설계
+- **확장성**: 마이크로서비스 아키텍처 적용으로 기능별 독립적 확장 가능
+- **성능 중심**: 실시간 처리를 위한 최적화 (처리 지연 100ms, 검증 2초, AR 0.8초 이내)
+- **단계별 개발**: MVP → 고도화 → 확장 단계별 구현 전략 수립
+
+### 1.2 기술 스택 가이드라인
+- **프론트엔드**: React, WebXR, Redux 사용, 컴포넌트 기반 설계
+- **백엔드**: TypeScript, Node.js, Express 기반 API 설계
+- **데이터**: MongoDB(주장/검증 데이터), Redis(캐싱) 최적 활용
+- **인프라**: AWS 기반 컨테이너화(Docker, Kubernetes) 설계
+
+## 2. 단계별 구현 지침
+
+### 2.1 콘텐츠 인식 및 전처리 모듈
+- **구현 요소**:
+  - ASR(자동 음성 인식) 통합 (Google AI Studio Stream)
+  - 초당 60프레임 분석 처리
+  - 다중 언어 지원 (한국어, 영어 우선)
+  - 화자 구분 및 시간 코드 부여
+- **성능 요구사항**: 처리 지연 100ms 이내
+- **코드 구조**:
+  ```typescript
+  // mediaProcessor.ts
+  class MediaProcessor {
+    async processStream(mediaStream: MediaStream): Promise<ProcessedContent>;
+    async extractText(audioData: AudioData): Promise<TranscriptResult>;
+    async detectLanguage(text: string): Promise<string>;
+    async identifySpeakers(audioData: AudioData): Promise<SpeakerSegment[]>;
+  }
+  ```
+
+### 2.2 주장 감지 및 분류 모듈
+- **구현 요소**:
+  - 150+ 패턴 기반 주장 감지 알고리즘
+  - 주장 유형 분류 (통계적, 역사적, 인용 등)
+  - 중요도/논쟁성 기준 우선순위 산정
+- **성능 요구사항**: 감지 정확도 85% 이상, 처리 시간 0.3초 이내
+- **코드 구조**:
+  ```typescript
+  // claimDetector.ts
+  class ClaimDetector {
+    async detectClaims(transcript: TranscriptResult): Promise<Claim[]>;
+    classifyClaim(claim: string): ClaimType;
+    calculatePriority(claim: Claim): number;
+    extractEntities(claim: string): Entity[];
+  }
+  ```
+
+### 2.3 다중 소스 팩트체크 모듈
+- **구현 요소**:
+  - 다중 API 병렬 호출 (빅카인즈, Factiverse, Google)
+  - 결과 통합 및 가중치 부여 알고리즘
+  - 종합 신뢰도 지수 계산
+  - 관련 맥락 정보 수집
+- **성능 요구사항**: 검증 시간 2초 이내, 최소 3개 독립 소스 확인
+- **코드 구조**:
+  ```typescript
+  // factChecker.ts
+  class FactChecker {
+    async verifyClaimParallel(claim: Claim): Promise<VerificationResult>;
+    async queryBigkinds(claim: Claim): Promise<SourceResult>;
+    async queryFactiverse(claim: Claim): Promise<SourceResult>;
+    async queryGoogleFactCheck(claim: Claim): Promise<SourceResult>;
+    calculateTruthScore(results: SourceResult[]): number;
+    buildContextTimeline(claim: Claim, results: SourceResult[]): TimelineEvent[];
+  }
+  ```
+
+### 2.4 AR 시각화 모듈
+- **구현 요소**:
+  - WebXR 기반 AR 오버레이 생성
+  - 신뢰도 수준별 시각적 표현 (색상 코드)
+  - 콘텐츠와 동기화된 타임라인 인터페이스
+  - 사용자 상호작용 기능
+- **성능 요구사항**: 0.8초 내 AR 팝업 표시, 비침습적 디자인
+- **코드 구조**:
+  ```typescript
+  // arVisualizer.tsx
+  class ARVisualizer {
+    renderOverlay(result: VerificationResult, position: Position): void;
+    createTruthIndicator(score: number): JSX.Element;
+    expandDetails(result: VerificationResult): JSX.Element;
+    renderTimeline(events: TimelineEvent[]): JSX.Element;
+    handleUserFeedback(feedback: UserFeedback): void;
+  }
+  ```
+
+## 3. API 통합 전략
+
+### 3.1 외부 API 연동 패턴
+- **통합 방식**: 어댑터 패턴 적용으로 API 간 일관된 인터페이스 제공
+- **인증 관리**: API 키 보안 관리 및 환경변수 기반 구성
+- **요청 최적화**: 배치 처리 및 요청 병합으로 API 호출 최소화
+- **코드 예시**:
+  ```typescript
+  // apiAdapter.ts
+  interface APIAdapter {
+    authenticate(): Promise<void>;
+    query(params: QueryParams): Promise<QueryResult>;
+    handleError(error: Error): ErrorResponse;
+  }
+
+  class BigkindsAdapter implements APIAdapter { /* ... */ }
+  class FactiverseAdapter implements APIAdapter { /* ... */ }
+  class GoogleFactCheckAdapter implements APIAdapter { /* ... */ }
+  ```
+
+### 3.2 에러 처리 및 재시도 전략
+- **네트워크 오류**: 지수 백오프 재시도 전략 (최대 3회)
+- **API 제한**: 속도 제한 감지 및 적응적 요청 조절
+- **폴백 메커니즘**: 주 API 실패 시 대체 API 자동 활용
+- **코드 예시**:
+  ```typescript
+  // errorHandler.ts
+  class APIErrorHandler {
+    async retryWithBackoff(fn: Function, maxRetries: number): Promise<any>;
+    handleRateLimiting(response: Response): void;
+    activateFallback(primaryAPI: APIAdapter): APIAdapter;
+  }
+  ```
+
+### 3.3 캐싱 및 최적화
+- **결과 캐싱**: Redis 기반 검증 결과 캐싱 (TTL: 24시간)
+- **요청 중복 제거**: 동일 주장 동시 검증 요청 병합
+- **프리페칭**: 관련 주장 예측 및 선제적 검증
+- **코드 예시**:
+  ```typescript
+  // cacheManager.ts
+  class CacheManager {
+    async getCachedResult(claimId: string): Promise<VerificationResult | null>;
+    async cacheResult(claimId: string, result: VerificationResult): Promise<void>;
+    deduplicateRequests(claims: Claim[]): Claim[];
+    predictRelatedClaims(claim: Claim): Claim[];
+  }
+  ```
+
+## 4. 코드 품질 및 테스트 지침
+
+### 4.1 코드 표준 및 명명 규칙
+- **명명 규칙**: camelCase(변수/함수), PascalCase(클래스), UPPER_SNAKE_CASE(상수)
+- **패턴 적용**: 책임 분리, 의존성 주입, 관심사 분리 원칙 준수
+- **모듈화**: 파일 크기 300줄 이내, 함수 크기 30줄 이내
+- **문서화**: JSDoc 표준 API 문서화, 복잡 로직 인라인 주석
+
+### 4.2 테스트 전략
+- **단위 테스트**: 모든 주요 함수 및 클래스 메서드 85%+ 커버리지
+- **통합 테스트**: 모듈 간 상호작용 검증, API 모킹
+- **E2E 테스트**: 주요 사용자 흐름 시뮬레이션
+- **성능 테스트**: 지연 시간 및 처리량 측정, 병목 식별
+
+### 4.3 품질 메트릭
+- **코드 품질**: ESLint/TSLint 규칙 준수, 정적 분석 도구 활용
+- **테스트 커버리지**: Jest/Mocha 기반 85%+ 유지
+- **성능 기준**: 각 모듈별 성능 요구사항 준수 검증
+
+## 5. 개발 로드맵 및 단계별 구현
+
+### 5.1 MVP 단계 (6개월)
+- **핵심 기능**: 
+  - 크롬 확장프로그램 형태 구현
+  - 기본 콘텐츠 인식 및 주장 감지
+  - 빅카인즈 API 중심 검증
+  - 기본 웹 인터페이스 (AR 제외)
+- **최소 성능**: 
+  - 처리 지연 300ms 이내
+  - 검증 시간 3초 이내
+  - 주장 감지 정확도 75% 이상
+
+### 5.2 고도화 단계 (12개월)
+- **확장 기능**:
+  - WebXR 기반 AR 인터페이스
+  - 멀티 API 병렬 처리 시스템
+  - 복수 브라우저 지원
+  - 사용자 피드백 기반 UI/UX 개선
+- **목표 성능**:
+  - 처리 지연 150ms 이내
+  - 검증 시간 2초 이내
+  - 주장 감지 정확도 85% 이상
+
+### 5.3 확장 단계 (18개월)
+- **고급 기능**:
+  - AI 생성 콘텐츠 감지 모듈
+  - 방송사 실시간 자막 연동
+  - B2B API 서비스
+  - 다국어 지원 확대
+- **최종 성능**:
+  - 처리 지연 100ms 이내
+  - 검증 시간 1.5초 이내
+  - 주장 감지 정확도 90% 이상
+
+## 6. 성능 최적화 전략
+
+### 6.1 실시간 처리 최적화
+- **웹 워커**: 주요 계산 작업 별도 스레드 처리
+- **스트림 처리**: 데이터 청크 단위 점진적 처리
+- **데이터 최소화**: 필요 데이터만 전송 및 처리
+- **코드 예시**:
+  ```typescript
+  // optimizedProcessor.ts
+  class OptimizedProcessor {
+    setupWorker(scriptPath: string): Worker;
+    processChunks(stream: ReadableStream): AsyncGenerator<ProcessedChunk>;
+    reduceDataSize(data: any): any;
+  }
+  ```
+
+### 6.2 병렬 처리 패턴
+- **Promise.all**: 다중 API 병렬 호출
+- **작업 분할**: 대용량 데이터 병렬 처리
+- **조기 결과 반환**: 첫 결과 확보 시 즉시 반환 (나머지는 백그라운드 처리)
+- **코드 예시**:
+  ```typescript
+  // parallelProcessor.ts
+  class ParallelProcessor {
+    async processAll<T, R>(items: T[], processFn: (item: T) => Promise<R>): Promise<R[]>;
+    splitWorkload<T>(items: T[], chunks: number): T[][];
+    returnEarlyWithPartialResults<T>(promises: Promise<T>[]): Promise<T[]>;
+  }
+  ```
+
+### 6.3 UI/UX 최적화
+- **렌더링 최적화**: React 메모이제이션, 가상 리스트
+- **지연 로딩**: 필요 시점에 컴포넌트/데이터 로드
+- **프리로딩**: 사용자 행동 예측 기반 선제 로드
+- **코드 예시**:
+  ```typescript
+  // optimizedUI.tsx
+  const MemoizedComponent = React.memo(({ data }) => { /* ... */ });
+  const LazyLoadedComponent = React.lazy(() => import('./HeavyComponent'));
+  function PreloadManager() { /* ... */ }
+  ```

@@ -1,0 +1,299 @@
+---
+description: FactChecker 앱 개발을 위한 코딩 표준 및 실시간 팩트체킹 구현 가이드라인
+globs: ["*.py", "*.js", "*.ts", "*.html", "*.css", "*.jsx", "*.tsx"]
+alwaysApply: true
+---
+
+# 📊 FactChecker 앱 개발 규칙
+
+## 📌 기본 정보
+**규칙 제목**: FactChecker 앱 코딩 표준 및 모범 사례  
+**목적**: 실시간 미디어 콘텐츠 진위 검증 및 AR 시각화 시스템의 품질, 성능, 확장성 보장  
+**적용 범위**: 프론트엔드(React/WebXR), 백엔드(Node.js), 데이터 처리, API 연동, AR 시각화  
+**우선순위**: 상 (실시간 처리 성능과 사용자 경험이 프로젝트 성공에 핵심적)
+
+## 📂 규칙 카테고리 및 세부 지침
+
+### 1️⃣ 데이터 관리
+#### 모델링
+- 주장(Claim) 객체는 ID, 텍스트, 유형, 시간코드, 화자, 우선순위, 엔티티 정보를 포함해야 함
+- 검증 결과(Verification) 객체는 신뢰도 점수, 판정, 소스 목록, 맥락 타임라인, 반대 주장을 포함해야 함
+- MongoDB 스키마는 확장 가능하게 설계하며 검증된 Mongoose 패턴 사용
+
+```typescript
+// 주장 모델 예시
+interface Claim {
+  claim_id: string;
+  claim_text: string;
+  claim_type: 'statistical' | 'historical' | 'quote' | 'other';
+  timecodes: [number, number];
+  speaker?: string;
+  priority: number;
+  entities: string[];
+  created_at: Date;
+}
+```
+
+#### 유효성 검증
+- 모든 외부 입력은 Joi/Zod를 통한 스키마 검증 필수
+- 주장 감지 알고리즘의 결과는 신뢰도 점수와 함께 제공
+- 데이터베이스 쿼리 전/후 유효성 검증 이중화
+
+```typescript
+// 입력 검증 예시
+const claimSchema = Joi.object({
+  claim_text: Joi.string().required().min(5).max(500),
+  claim_type: Joi.string().valid('statistical', 'historical', 'quote', 'other').required(),
+  priority: Joi.number().min(1).max(10).required()
+});
+```
+
+#### 접근 제어
+- API 요청은 JWT 토큰을 통한 인증 필수
+- 민감한 팩트체크 소스에 대한 접근은 역할 기반 권한 부여
+- 사용자 행동 로깅은 최소 필요 정보만 수집
+
+#### 예외 처리
+- 외부 API 오류 시 대체 API로 자동 전환하는 회복 로직 구현
+- 비동기 작업의 모든 예외는 캐치하여 명시적으로 처리
+- 오류 메시지는 사용자 친화적으로 변환
+
+```typescript
+// 다중 API 오류 처리 예시
+try {
+  const result = await primaryFactCheckAPI.verify(claim);
+  return result;
+} catch (error) {
+  logger.warn(`Primary API failed: ${error.message}`);
+  try {
+    return await fallbackFactCheckAPI.verify(claim);
+  } catch (fallbackError) {
+    logger.error(`Fallback API failed: ${fallbackError.message}`);
+    throw new VerificationError('팩트체크 서비스 일시적 오류');
+  }
+}
+```
+
+### 2️⃣ 사용자 경험(UX)
+#### 일관성 유지
+- AR 인터페이스는 비침습적 반투명 오버레이로 구현
+- 신뢰도 수준별 일관된 색상 코드 사용 (녹색: 사실, 노란색: 부분적 사실, 빨간색: 허위)
+- 사용자 인터랙션은 최소한의 조작으로 직관적 피드백 제공
+
+```tsx
+// AR 컴포넌트 예시
+const TruthScoreIndicator: React.FC<{score: number}> = ({score}) => {
+  const getColor = () => {
+    if (score >= 80) return '#4CAF50'; // 녹색 (사실)
+    if (score >= 50) return '#FFC107'; // 노란색 (부분적 사실)
+    return '#F44336'; // 빨간색 (허위)
+  };
+  
+  return (
+    <div className="truth-indicator" style={{
+      backgroundColor: getColor(),
+      opacity: 0.85,
+      padding: '8px 12px',
+      borderRadius: '4px',
+      transition: 'all 0.3s ease'
+    }}>
+      {score}/100
+    </div>
+  );
+};
+```
+
+#### 접근성 준수
+- WCAG 2.1 AA 기준 준수 (색상 대비, 키보드 접근성, 스크린 리더 호환)
+- AR 인터페이스는 대체 텍스트 모드 제공
+- 디바이스 방향 및 화면 크기에 대응하는 반응형 레이아웃
+
+#### 반응형 설계
+- WebXR이 지원되지 않는 환경에서는 2D 인터페이스로 자동 대체
+- 모바일 최적화 UI 제공 (터치 영역 최소 44x44px)
+- 네트워크 상태에 따른 적응형 콘텐츠 로딩
+
+#### 오류 피드백
+- 검증 지연 시 명확한 로딩 상태 표시
+- API 오류 시 사용자가 이해하기 쉬운 메시지 제공
+- 중요 오류는 진동 및 시각적 알림으로 강조
+
+### 3️⃣ 보안
+#### 인증 및 권한 관리
+- OAuth 2.0 기반 사용자 인증 구현
+- API 키는 환경변수로 분리하여 저장소에 커밋 금지
+- 권한 확인은 모든 API 엔드포인트의 미들웨어로 구현
+
+```typescript
+// 권한 검증 미들웨어 예시
+const checkPermission = (requiredRole: string) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const { role } = req.user;
+    if (role !== requiredRole && role !== 'admin') {
+      return res.status(403).json({ error: '권한이 없습니다' });
+    }
+    next();
+  };
+};
+```
+
+#### 민감 데이터 보호
+- 사용자 데이터는 필요 최소한으로 수집하고 암호화하여 저장
+- 외부 API 응답에서 민감 정보 필터링
+- GDPR, CCPA, KPIPA 컴플라이언스 준수
+
+#### 입력 검증 강화
+- 모든 사용자 입력은 서버 측에서 재검증
+- XSS 방지를 위한 출력 이스케이프 처리
+- 사용자 제출 주장은 자동화된 유해 콘텐츠 필터링 적용
+
+#### API 보안 강화
+- 모든 API 통신은 HTTPS로 암호화
+- API 속도 제한 및 DDOS 보호 구현
+- 결과 캐싱으로 중복 요청 최소화
+
+### 4️⃣ 확장성
+#### 모듈화 원칙
+- 기능별 마이크로서비스 아키텍처 설계 (미디어 처리, 주장 감지, 팩트체크, AR 시각화)
+- 컴포넌트는 단일 책임 원칙(SRP)을 따라 설계
+- 비즈니스 로직과 UI 렌더링 분리
+
+```typescript
+// 모듈화된 서비스 예시
+export class ClaimDetectionService {
+  constructor(
+    private mediaProcessor: MediaProcessorInterface,
+    private entityExtractor: EntityExtractorInterface,
+    private priorityCalculator: PriorityCalculatorInterface
+  ) {}
+
+  async detectClaims(transcript: string): Promise<Claim[]> {
+    // 구현...
+  }
+}
+```
+
+#### 의존성 관리
+- 외부 라이브러리는 래퍼 클래스로 감싸서 교체 용이성 확보
+- 주요 API 클라이언트는 인터페이스 기반으로 설계
+- 의존성 주입 패턴으로 테스트 용이성 확보
+
+#### 성능 최적화
+- 실시간 처리는 웹워커 또는 스트림 처리로 구현
+- 메모리 누수 방지를 위한 구독 패턴 관리
+- 무거운 계산은 서버 측으로 오프로드
+
+```typescript
+// 웹워커 활용 예시
+// main.ts
+const worker = new Worker('./factcheck.worker.ts');
+worker.postMessage({ claim: claimText });
+worker.onmessage = (event) => {
+  updateUI(event.data.result);
+};
+
+// factcheck.worker.ts
+self.onmessage = async (event) => {
+  const { claim } = event.data;
+  const result = await verifyClaimWithExternalAPIs(claim);
+  self.postMessage({ result });
+};
+```
+
+#### 확장 가능한 아키텍처
+- 쿠버네티스 기반 자동 확장 구성
+- 이벤트 소싱 패턴으로 시스템 상태 관리
+- 언어/플랫폼 확장을 위한 플러그인 아키텍처
+
+### 5️⃣ 개발 프로세스
+#### 버전 관리 전략
+- Git Flow 브랜칭 전략 채택 (feature, develop, release, hotfix, main)
+- 의미론적 버전 관리 (Semantic Versioning)
+- 커밋 메시지는 Conventional Commits 형식 준수
+
+#### 코드 문서화 표준
+- 모든 모듈, 클래스, 함수는 JSDoc/TSDoc 주석 필수
+- API 엔드포인트는 OpenAPI/Swagger 명세 작성
+- 복잡한 알고리즘은 설계 의도와 결정 근거 문서화
+
+```typescript
+/**
+ * 주장의 신뢰도를 다중 소스에서 검증하고 종합 점수를 계산합니다.
+ * @param claim - 검증할 주장 객체
+ * @param sources - 사용할 팩트체크 소스 배열
+ * @returns 검증 결과와 신뢰도 점수
+ * @throws {VerificationError} 검증 실패 시
+ */
+async function verifyClaimWithMultipleSources(
+  claim: Claim, 
+  sources: FactCheckSource[]
+): Promise<VerificationResult> {
+  // 구현...
+}
+```
+
+#### 테스트 작성 기준
+- 핵심 알고리즘은 단위 테스트 90% 이상 커버리지 유지
+- 실시간 기능은 성능 테스트로 응답 시간 검증
+- E2E 테스트는 핵심 사용자 시나리오 중심 구성
+
+#### CI/CD 통합 방법
+- 모든 PR은 자동화된 코드 품질 검사 및 테스트 통과 필수
+- 테스트 환경 자동 배포로 QA 효율화
+- 성능 회귀 테스트 자동화
+
+## 🔄 기존 규칙과의 통합
+**참조 규칙**: React 컴포넌트 구조, TypeScript 타입 안전성, 비동기 처리 패턴  
+**충돌 해결**: 실시간 처리 최적화가 기존 코드 스타일 규칙과 충돌 시 성능 우선  
+**보완 관계**: 기존 보안 규칙을 팩트체킹 API 연동에 특화된 지침으로 보완
+
+## 🛠️ 구현 및 적용 가이드
+**적용 단계**:
+1. 우선 마이크로서비스 아키텍처 구조 설정 및 인터페이스 정의
+2. 핵심 모듈별 프로토타입 구현 및 성능 테스트
+3. 지속적 통합을 통한 기능 확장 및 최적화
+
+**검증 방법**: 
+- 실시간 처리 성능 모니터링 (지연 시간 100ms 이내)
+- 주장 감지 정확도 평가 (85% 이상 목표)
+- 사용자 경험 테스트 (0.8초 내 AR 시각화)
+
+**예외 상황 대응**:
+- WebXR 미지원 브라우저에서는 2D 대체 인터페이스 제공
+- API 한도 초과 시 중요도 기반 요청 우선순위 지정
+- 네트워크 불안정 상황을 위한 오프라인 모드 구현
+
+## 🔍 규칙 유지보수 및 업데이트
+**검토 주기**: 2주 단위 코드 품질 검토 회의  
+**피드백 수집**: 사용자 피드백 대시보드 및 개발자 이슈 트래킹  
+**개선 프로세스**: 성능 데이터 분석 기반의 규칙 최적화 및 확장
+
+## 📊 평가 지표
+**정량적 지표**:
+- 처리 지연 시간 100ms 이내
+- 주장 감지 정확도 85% 이상
+- 검증 시간 2초 이내
+- 시스템 가용성 99.5% 이상
+
+**정성적 지표**:
+- 코드 가독성 및 유지보수성
+- 확장 용이성 (새로운 API 연동 시간)
+- 개발자 생산성 향상도
+
+## 📚 참고 자료 및 리소스
+**관련 문서**:
+- WebXR 디바이스 API 명세
+- 빅카인즈 API 문서
+- Factiverse Live API 가이드
+- Google Fact Check API 레퍼런스
+
+**도구 및 라이브러리**:
+- React + Redux 상태 관리
+- TypeScript 타입 시스템
+- WebXR 폴리필 및 헬퍼
+- MongoDB와 Mongoose ODM
+
+**교육 자료**:
+- 실시간 웹 애플리케이션 최적화 기법
+- AR 인터페이스 디자인 원칙
+- 팩트체킹 알고리즘 구현 가이드

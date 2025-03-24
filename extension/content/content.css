@@ -1,0 +1,192 @@
+#factchecker-overlay {
+  position: absolute;
+  z-index: 999999;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.factcheck-result {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  max-width: 300px;
+  font-family: 'Noto Sans KR', sans-serif;
+  animation: fade-in 0.3s ease-in-out;
+}
+
+.result-card {
+  margin-bottom: 10px;
+  border-radius: 8px;
+  color: white;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  backdrop-filter: blur(2px);
+}
+
+.claim {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.score {
+  font-size: 12px;
+}
+
+/* 주장 검증 오버레이 스타일 */
+#factchecker-news-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80%;
+  max-width: 800px;
+  max-height: 80vh;
+  background-color: rgba(255, 255, 255, 0.95);
+  color: #333;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  z-index: 999999;
+  padding: 20px;
+  overflow-y: auto;
+  font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
+  animation: overlay-fade-in 0.3s ease-out;
+}
+
+/* 진위 판정 결과 스타일 */
+.verification-true {
+  background-color: rgba(76, 175, 80, 0.1);
+  border-left: 5px solid #4CAF50;
+}
+
+.verification-partial {
+  background-color: rgba(255, 193, 7, 0.1);
+  border-left: 5px solid #FFC107;
+}
+
+.verification-false {
+  background-color: rgba(244, 67, 54, 0.1);
+  border-left: 5px solid #F44336;
+}
+
+/* 출처 목록 스타일 */
+.source-list {
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.source-item {
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+}
+
+.source-item:last-child {
+  border-bottom: none;
+}
+
+.source-item-even {
+  background-color: #f9f9f9;
+}
+
+.source-item-odd {
+  background-color: white;
+}
+
+/* 신뢰도 배지 스타일 */
+.score-badge {
+  padding: 5px 10px;
+  border-radius: 15px;
+  font-size: 12px;
+  font-weight: bold;
+  color: white;
+}
+
+.score-badge-high {
+  background-color: #4CAF50;
+}
+
+.score-badge-medium {
+  background-color: #FFC107;
+}
+
+.score-badge-low {
+  background-color: #F44336;
+}
+
+/* 버튼 스타일 */
+.factchecker-button {
+  padding: 10px 20px;
+  background-color: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.factchecker-button:hover {
+  background-color: #1557b0;
+}
+
+.factchecker-close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #333;
+  transition: color 0.2s;
+}
+
+.factchecker-close-button:hover {
+  color: #F44336;
+}
+
+/* 애니메이션 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* 로딩 스피너 */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.factchecker-spinner {
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #1a73e8;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 2s linear infinite;
+  margin: 0 auto 20px auto;
+} 

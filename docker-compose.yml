@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # 메인 애플리케이션
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/factchecker
+      - REDIS_URI=redis://redis:6379
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - factchecker-network
+
+  # MongoDB 서비스
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - factchecker-network
+
+  # Redis 서비스
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - factchecker-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  factchecker-network:
+    driver: bridge 

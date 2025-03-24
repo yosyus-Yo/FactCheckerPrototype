@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+dist/
+build/
+.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Docker
+.docker/
+docker-volumes/
+
+# Profiling
+isolate-*.log
+profile-output.txt
+
+# Debugging
+npm-debug.log
+yarn-error.log
+yarn-debug.log 

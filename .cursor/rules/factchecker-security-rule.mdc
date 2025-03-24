@@ -1,0 +1,177 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# 🔒 FactChecker 보안 자동화 규칙
+> 실시간 미디어 콘텐츠 팩트체킹 시스템의 보안 강화 규칙
+
+---
+description: FactChecker 앱의 API 보안 및 데이터 보호를 위한 자동화 규칙
+globs: ["*.py", "*.js", "*.ts", "*.html"]
+alwaysApply: true
+priority: 1
+requires: []
+---
+
+## 📌 목적과 적용 범위
+
+### 해결할 문제
+- 외부 API 키 노출 및 부적절한 관리
+- 사용자 데이터 과다 수집 및 불안전한 저장
+- AR/WebXR 관련 보안 취약점
+- 실시간 팩트체킹 서비스의 무결성 위협
+
+### 적용 범위
+- 백엔드 서비스 코드 (Python, TypeScript)
+- 프론트엔드 코드 (JavaScript, TypeScript)
+- WebXR 인터페이스 코드 (JavaScript)
+- API 연동 코드 (빅카인즈, Factiverse Live, Google Fact Check 등)
+
+## ⚙️ 규칙 로직
+
+### 핵심 알고리즘
+1. 코드 스캔을 통한 보안 취약점 감지
+2. 안전한 코딩 패턴 사용 강제
+3. API 키와 민감 정보 관리 검증
+4. 사용자 데이터 처리 로직 분석
+
+### 적용 조건
+- 모든 백엔드 및 프론트엔드 코드에 적용
+- CI/CD 파이프라인의 빌드 단계에서 검증
+- 코드 리뷰 과정에서 자동 실행
+- 환경별(개발, 스테이징, 프로덕션) 차등 적용
+
+### 감지 패턴
+1. **API 키 노출 방지**
+   ```regex
+   (API[_-]?KEY|api[_-]?key|ApiKey|BIGKINDS_KEY|FACTIVERSE_KEY|GOOGLE_KEY)['"]\s*[:=]\s*['"](mdc:[A-Za-z0-9_\-]{10,})['"]
+   ```
+
+2. **안전하지 않은 API 호출 감지**
+   ```regex
+   fetch\(['"]http:\/\/
+   ```
+
+3. **사용자 데이터 과다 수집 감지**
+   ```regex
+   (userLocation|phoneNumber|personalId|nationalId)
+   ```
+
+4. **WebXR 권한 검증 누락 감지**
+   ```regex
+   navigator\.xr\.requestSession\(['"]immersive-ar['"]\)(?!\.then\(.*?\{.*?if\s*\(.*?isUserAuthorized.*?\))
+   ```
+
+## 🔄 기존 시스템과의 통합
+
+### 통합 방법
+1. GitHub Actions 워크플로우에 규칙 검증 단계 추가
+2. VSCode 확장을 통한 개발 시점 검증 지원
+3. Jira와 연동하여 보안 이슈 티켓 자동 생성
+
+### 규칙 의존성
+- 독립적인 규칙으로 외부 의존성 없음
+- 기존 ESLint/Pylint 규칙과 상호보완적 역할
+
+## 📊 측정 및 모니터링
+
+### KPI
+- 감지된 보안 취약점 수 (주간/월간)
+- 수정된 취약점 비율 (%)
+- 코드 병합 전 감지된 보안 이슈 비율 (%)
+
+### 알림 조건
+- 고위험 보안 취약점 발견 시 즉시 알림 (API 키 노출, 인증 누락 등)
+- 주간 보안 보고서 생성 및 팀 공유
+- 미해결 취약점이 일정 기간 이상 지속 시 에스컬레이션
+
+## 📝 예시 시나리오
+
+### 시나리오 1: API 키 하드코딩 감지
+- **상황**: 개발자가 소스 코드에 빅카인즈 API 키를 직접 하드코딩
+- **입력**:
+  ```javascript
+  const BIGKINDS_API_KEY = "a1b2c3d4e5f6g7h8i9j0";
+  
+  async function fetchNewsData() {
+    const response = await fetch(`https://api.bigkinds.or.kr/search?apikey=${BIGKINDS_API_KEY}`);
+    // ...
+  }
+  ```
+- **예상 동작**: 규칙이 하드코딩된 API 키를 감지하고 경고
+- **결과**: 다음과 같은 경고 메시지 표시 및 PR 거부
+  ```
+  [고위험] API 키가 코드에 직접 노출되었습니다. 환경 변수나 보안 저장소를 사용하세요.
+  파일: src/services/news-service.js:1
+  ```
+
+### 시나리오 2: WebXR 권한 검증 누락
+- **상황**: AR 인터페이스 구현 시 사용자 권한 검증 누락
+- **입력**:
+  ```javascript
+  async function startARExperience() {
+    const session = await navigator.xr.requestSession('immersive-ar');
+    // 권한 검증 없이 바로 AR 세션 시작
+  }
+  ```
+- **예상 동작**: 권한 검증 로직 누락 감지
+- **결과**: 다음과 같은 경고 메시지 및 수정 방향 제시
+  ```
+  [중위험] AR 세션 시작 전 사용자 권한 검증이 누락되었습니다.
+  파일: src/components/ar-view.js:15
+  권장사항: AR 세션 시작 전 isUserAuthorized() 함수를 통해 권한 검증을 수행하세요.
+  ```
+
+### 시나리오 3: 불필요한 사용자 데이터 수집
+- **상황**: 팩트체킹에 불필요한 사용자 위치 정보 수집
+- **입력**:
+  ```javascript
+  function collectUserData() {
+    return {
+      preferences: getUserPreferences(),
+      location: navigator.geolocation.getCurrentPosition(),
+      deviceInfo: getDeviceInfo()
+    };
+  }
+  ```
+- **예상 동작**: 불필요한 위치 정보 수집 감지
+- **결과**: 최소 필요 정보 원칙 위반 경고
+  ```
+  [중위험] 필요 이상의 사용자 데이터(위치 정보)를 수집하고 있습니다.
+  파일: src/utils/user-data.js:5
+  권장사항: PRD의 '데이터 보호' 지침에 따라 최소 필요 정보만 수집하세요.
+  ```
+
+## 🔄 기존 워크플로우와의 통합
+
+### 검증 메커니즘
+- CI/CD 파이프라인 내 자동 검증
+- Pull Request 생성 시 자동 실행
+- 정적 코드 분석 도구와 연계 (SonarQube, CodeQL)
+
+### 업데이트 프로세스
+- 분기별 보안 규칙 검토 및 업데이트
+- 새로운 보안 위협 발견 시 즉시 규칙 추가
+- 팀 피드백 기반 규칙 최적화
+
+### 안전장치
+- 오탐지 가능성이 있는 규칙은 경고만 생성 (빌드 차단 없음)
+- 고위험 이슈만 PR 병합 차단
+- 긴급 배포 시 일시적 무시 옵션 제공 (관리자 승인 필요)
+
+### 로깅 및 감사
+- 모든 보안 규칙 위반 이력 기록
+- 분기별 보안 감사 보고서 자동 생성
+- 반복적 위반 패턴 분석 및 개발자 교육 제공
+
+## ✅ 결론 및 기대효과
+
+이 자동화 규칙은 FactChecker 시스템의 보안을 강화하여 다음과 같은 효과를 제공합니다:
+
+1. API 키와 민감 정보의 안전한 관리
+2. 사용자 데이터 최소화 원칙 준수
+3. WebXR 및 AR 인터페이스의 보안 강화
+4. 실시간 팩트체킹 서비스의 무결성 보장
+
+규칙을 통해 개발 초기 단계부터 보안을 고려한 설계와 구현을 유도하여, 최종 사용자에게 안전하고 신뢰할 수 있는 서비스를 제공할 수 있습니다.

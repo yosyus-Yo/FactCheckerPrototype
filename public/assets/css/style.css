@@ -1,0 +1,553 @@
+/* 기본 스타일 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  line-height: 1.6;
+  color: #333;
+  background-color: #f5f5f5;
+}
+
+.app-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* 헤더 스타일 */
+.app-header {
+  text-align: center;
+  margin-bottom: 30px;
+  padding: 20px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.app-header h1 {
+  font-size: 2.5rem;
+  color: #2c3e50;
+  margin-bottom: 10px;
+}
+
+.app-header p {
+  font-size: 1.1rem;
+  color: #7f8c8d;
+}
+
+/* 메인 콘텐츠 스타일 */
+.app-content {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+@media (min-width: 768px) {
+  .app-content {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .verification-section {
+    grid-column: 1 / -1;
+  }
+}
+
+section {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+}
+
+section h2 {
+  font-size: 1.3rem;
+  color: #3498db;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #ecf0f1;
+}
+
+/* 입력 섹션 스타일 */
+.content-input {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+#content-type {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+#content-text {
+  width: 100%;
+  min-height: 150px;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  resize: vertical;
+}
+
+#analyze-btn, #detect-claims-btn {
+  padding: 12px 20px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+#analyze-btn:hover, #detect-claims-btn:hover {
+  background-color: #2980b9;
+}
+
+#detect-claims-btn {
+  background-color: #2ecc71;
+}
+
+#detect-claims-btn:hover {
+  background-color: #27ae60;
+}
+
+.secondary-btn {
+  margin-top: 10px;
+}
+
+/* 결과 섹션 스타일 */
+.claims-container {
+  min-height: 200px;
+}
+
+.no-claims {
+  color: #7f8c8d;
+  text-align: center;
+  margin-top: 50px;
+}
+
+.claim-item {
+  padding: 15px;
+  margin-bottom: 15px;
+  border-left: 4px solid #3498db;
+  background-color: #f9f9f9;
+  border-radius: 0 4px 4px 0;
+}
+
+.claim-text {
+  font-size: 1.1rem;
+  margin-bottom: 10px;
+}
+
+.claim-confidence {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+}
+
+/* 팩트체킹 섹션 스타일 */
+.verification-status {
+  margin-bottom: 20px;
+}
+
+.progress-container {
+  width: 100%;
+  height: 20px;
+  background-color: #ecf0f1;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress-bar {
+  height: 100%;
+  background-color: #3498db;
+  border-radius: 10px;
+  transition: width 0.3s ease;
+}
+
+.status-message {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  text-align: center;
+}
+
+.verification-results {
+  min-height: 100px;
+}
+
+.verification-result {
+  padding: 20px;
+  margin-bottom: 15px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.result-status {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 15px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.result-status.true {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.result-status.false {
+  background-color: #F44336;
+  color: white;
+}
+
+.result-status.partial {
+  background-color: #FFC107;
+  color: #333;
+}
+
+.result-status.unverified {
+  background-color: #9E9E9E;
+  color: white;
+}
+
+.result-explanation {
+  margin-bottom: 15px;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.result-sources {
+  border-top: 1px solid #ecf0f1;
+  padding-top: 10px;
+}
+
+.result-sources h4 {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  margin-bottom: 10px;
+}
+
+.source-list {
+  list-style: none;
+}
+
+.source-item {
+  margin-bottom: 8px;
+}
+
+.source-item a {
+  color: #3498db;
+  text-decoration: none;
+}
+
+.source-item a:hover {
+  text-decoration: underline;
+}
+
+/* AR 컨테이너 스타일 */
+.ar-container {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.ar-button {
+  padding: 12px 25px;
+  background-color: #2ecc71;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.ar-button:hover {
+  background-color: #27ae60;
+}
+
+.ar-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+#ar-scene-container {
+  width: 100%;
+  height: 300px;
+  margin-top: 20px;
+  background-color: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  display: none;
+}
+
+#ar-scene-container.active {
+  display: block;
+}
+
+/* 푸터 스타일 */
+.app-footer {
+  text-align: center;
+  margin-top: 50px;
+  padding: 20px 0;
+  border-top: 1px solid #eee;
+  color: #7f8c8d;
+  font-size: 0.9rem;
+}
+
+/* 주장 감지 결과 스타일 */
+.claims-summary {
+  padding: 15px;
+  margin-bottom: 20px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  border-left: 4px solid #3498db;
+}
+
+.claims-summary h3 {
+  font-size: 1.2rem;
+  margin-bottom: 10px;
+  color: #2c3e50;
+}
+
+.type-distribution {
+  margin-top: 10px;
+}
+
+.type-distribution h4 {
+  font-size: 1rem;
+  margin-bottom: 5px;
+  color: #7f8c8d;
+}
+
+.type-distribution ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.type-distribution li {
+  display: inline-block;
+  margin-right: 15px;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.claims-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.claim-item {
+  padding: 15px;
+  border-radius: 4px;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #3498db;
+}
+
+.claim-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.claim-type {
+  display: inline-block;
+  padding: 3px 8px;
+  background-color: #3498db;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.claim-priority {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.claim-text {
+  font-size: 1.1rem;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.claim-confidence {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  margin-bottom: 5px;
+}
+
+.claim-explanation {
+  font-size: 0.9rem;
+  font-style: italic;
+  color: #555;
+  padding: 5px 0;
+  border-top: 1px dashed #ddd;
+  margin-top: 5px;
+}
+
+/* 스트림 분석 컨테이너 스타일 */
+.stream-container {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.stream-container h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #2c3e50;
+  font-size: 1.5rem;
+}
+
+.stream-container .input-group {
+  margin-bottom: 15px;
+}
+
+.stream-container label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.stream-container input[type="text"],
+.stream-container select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.stream-container .button-group {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+/* 스트림 상태 컨테이너 */
+.stream-container .status-container {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+}
+
+.stream-container .progress-container {
+  height: 10px;
+  background-color: #dee2e6;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.stream-container .progress-bar {
+  height: 100%;
+  background-color: #007bff;
+  transition: width 0.3s ease;
+}
+
+.stream-container .status-message {
+  margin: 5px 0;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+/* 스트림 결과 스타일 */
+.stream-results {
+  margin-top: 20px;
+}
+
+.stream-results h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #2c3e50;
+  font-size: 1.2rem;
+}
+
+.stream-results h5 {
+  margin-top: 10px;
+  margin-bottom: 5px;
+  color: #495057;
+  font-size: 1rem;
+}
+
+.transcript-container {
+  margin-bottom: 20px;
+}
+
+.transcript-content {
+  padding: 10px;
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.detected-claims-container {
+  margin-bottom: 15px;
+}
+
+.claims-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.claim-item {
+  padding: 10px;
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  position: relative;
+}
+
+.claim-text {
+  margin: 0 0 8px 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.claim-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin-bottom: 8px;
+}
+
+.small-btn {
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.small-btn:hover {
+  background-color: #0069d9;
+}
+
+/* 유틸리티 클래스 */
+.hidden {
+  display: none;
+} 
