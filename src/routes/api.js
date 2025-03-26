@@ -15,6 +15,58 @@ const contentExtractor = require('../utils/contentExtractor');
 // 진행 중인 요청을 추적하는 Map 객체 (임시 메모리 저장)
 const processingRequests = new Map();
 
+// 로깅 컨텍스트 생성 함수
+function createLoggingContext(req) {
+  return {
+    requestId: req.id,
+    method: req.method,
+    path: req.path,
+    timestamp: new Date().toISOString()
+  };
+}
+
+// 콘텐츠 로깅을 위한 헬퍼 함수
+function logContent(context, type, content, metadata = {}) {
+  if (!content) return;
+  
+  const contentPreview = typeof content === 'string' 
+    ? content.substring(0, 200) + (content.length > 200 ? '...' : '')
+    : JSON.stringify(content).substring(0, 200) + '...';
+  
+  logger.info(`[${type}] 콘텐츠 처리`, {
+    ...context,
+    contentType: type,
+    contentPreview,
+    contentLength: typeof content === 'string' ? content.length : JSON.stringify(content).length,
+    ...metadata
+  });
+}
+
+// 검증 결과 로깅을 위한 헬퍼 함수
+function logVerificationResult(context, result, metadata = {}) {
+  logger.info('검증 결과', {
+    ...context,
+    trustScore: result.trustScore,
+    verdict: result.verdict,
+    claimsCount: result.verifiedClaims?.length || 0,
+    processingTime: metadata.processingTime,
+    ...metadata
+  });
+}
+
+// 에러 로깅을 위한 헬퍼 함수
+function logError(context, error, metadata = {}) {
+  logger.error('에러 발생', {
+    ...context,
+    error: {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    },
+    ...metadata
+  });
+}
+
 /**
  * URL과 콘텐츠를 기반으로 고유 식별자 생성
  * @param {string} url - 검증할 웹페이지 URL
@@ -93,6 +145,41 @@ if (config.performance.rateLimiting.enabled) {
   
   router.use(apiLimiter);
 }
+
+// 다양한 엔드포인트별 속도 제한 설정
+const limiter = (type) => {
+  const rateLimit = require('express-rate-limit');
+  
+  const limits = {
+    // 표준 API 요청 제한 (일반적인 API 요청)
+    standard: {
+      windowMs: 1 * 60 * 1000, // 1분
+      max: 30 // 1분당 최대 30회
+    },
+    // 자원 집약적 작업 제한 (예: 검증 요청)
+    intensive: {
+      windowMs: 5 * 60 * 1000, // 5분
+      max: 10 // 5분당 최대 10회
+    },
+    // 민감 작업 제한 (예: 인증 관련)
+    sensitive: {
+      windowMs: 15 * 60 * 1000, // 15분
+      max: 5 // 15분당 최대 5회
+    }
+  };
+  
+  const config = limits[type] || limits.standard;
+  
+  return rateLimit({
+    windowMs: config.windowMs,
+    max: config.max,
+    message: {
+      error: '너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+};
 
 /**
  * @route   GET /api/health
@@ -1115,72 +1202,381 @@ router.post('/verify-news', async (req, res) => {
   }
 });
 
-// 검증 상태 확인 API 엔드포인트
-router.get('/verification-status/:claimId', async (req, res) => {
+/**
+ * @route   POST /api/verify/enhanced
+ * @desc    향상된 URL 콘텐츠 검증
+ * @access  Public
+ */
+router.post('/verify/enhanced', async (req, res) => {
+  const context = createLoggingContext(req);
+  const startTime = Date.now();
+  
   try {
-    const { claimId } = req.params;
-    const clientId = req.query.clientId;
+    const { url, content, forceRefresh } = req.body;
     
-    console.log(`[API] /verification-status/${claimId} 요청 수신, 클라이언트 ID: ${clientId || '(없음)'}`);
-    
-    // 데이터베이스에서 검증 상태 조회
-    const verification = await Verification.findOne({
-      where: { claimId }
-    });
-
-    if (!verification) {
-      console.log(`[API] 검증 ID를 찾을 수 없음: ${claimId}`);
-      return res.status(404).json({ 
-        success: false, 
-        error: '해당 검증 ID를 찾을 수 없습니다.' 
+    if (!url && !content) {
+      return res.status(400).json({
+        success: false,
+        error: 'URL 또는 콘텐츠를 제공해주세요.'
       });
     }
     
-    // 클라이언트 ID 존재 시 추가
-    if (clientId && !verification.clientIds.includes(clientId)) {
-      verification.clientIds = [...verification.clientIds, clientId];
-      await verification.save();
-      console.log(`[API] 클라이언트 ID 추가: ${clientId} (총 ${verification.clientIds.length}개)`);
-    }
-
-    console.log(`[API] 검증 상태 조회 성공: ID=${claimId}, 상태=${verification.status}, 진행도=${verification.progress}%`);
+    // 캐시 키 생성
+    const cacheKey = generateClaimId(url, content);
     
-    // 상세 결과 반환
-    const result = {
+    // 이미 처리 중인 요청인지 확인
+    if (processingRequests.has(cacheKey)) {
+      logger.info('중복 요청 감지', { ...context, cacheKey });
+      return res.status(202).json({
+        success: true,
+        message: '이미 처리 중인 요청입니다.',
+        requestId: cacheKey
+      });
+    }
+    
+    // forceRefresh가 true가 아닐 경우에만 캐시를 확인
+    if (!forceRefresh && isMongoConnected()) {
+      const cachedResult = await Verification.findOne({ claimId: cacheKey });
+      if (cachedResult) {
+        logger.info('캐시된 결과 반환', { 
+          ...context,
+          cacheKey,
+          cachedAt: cachedResult.verifiedAt
+        });
+        return res.json({
+          success: true,
+          cached: true,
+          processingTime: '1ms',
+          result: cachedResult
+        });
+      }
+    } else if (forceRefresh) {
+      logger.info('강제 새로고침 요청 - 캐시 무시', { ...context, cacheKey });
+    }
+    
+    // 처리 중인 요청으로 등록
+    processingRequests.set(cacheKey, Date.now());
+    
+    // URL 콘텐츠 검증 실행
+    logger.info('검증 프로세스 시작', { ...context, url, forceRefresh: !!forceRefresh });
+    
+    const result = await factChecker.enhancedVerifyContent(url, content);
+    
+    // 추출된 콘텐츠 로깅
+    if (result.extractedContent) {
+      logContent(context, 'EXTRACTED', result.extractedContent, {
+        url,
+        extractionMethod: result.metadata?.extractionMethod
+      });
+    }
+    
+    // 검증 결과 로깅
+    logVerificationResult(context, result, {
+      processingTime: Date.now() - startTime,
+      url
+    });
+    
+    // 결과 캐싱
+    if (isMongoConnected()) {
+      // 기존 검증 결과가 있으면 업데이트, 없으면 새로 생성
+      if (forceRefresh) {
+        await Verification.findOneAndUpdate(
+          { claimId: cacheKey },
+          { 
+            ...result,
+            verifiedAt: new Date() 
+          },
+          { upsert: true, new: true }
+        );
+        logger.info('기존 캐시 업데이트', { ...context, cacheKey });
+      } else {
+        const verification = new Verification({
+          claimId: cacheKey,
+          ...result,
+          verifiedAt: new Date()
+        });
+        await verification.save();
+      }
+    }
+    
+    // 처리 중인 요청에서 제거
+    processingRequests.delete(cacheKey);
+    
+    return res.json({
       success: true,
-      status: verification.status,
-      progress: verification.progress,
-      claimId: verification.claimId,
-      title: verification.title,
-      url: verification.url
-    };
+      cached: false,
+      processingTime: formatTimeInterval(Date.now() - startTime),
+      result
+    });
     
-    // 검증이 완료된 경우 결과 포함
-    if (verification.status === 'completed') {
-      result.result = {
-        trustScore: verification.trustScore,
-        factCheckerAnalysis: verification.factCheckerAnalysis,
-        factCheckingInfo: verification.factCheckingInfo,
-        analysisDetails: verification.analysisDetails,
-        completedAt: verification.updatedAt
-      };
-      
-      console.log(`[API] 검증 결과 반환: 신뢰도 점수=${verification.trustScore}, 완료 시간=${verification.updatedAt}`);
-    } else if (verification.status === 'error') {
-      result.error = verification.errorMessage || '검증 과정 중 오류가 발생했습니다.';
-      console.log(`[API] 검증 오류 반환: ${result.error}`);
-    }
-
-    return res.json(result);
   } catch (error) {
-    console.error(`[API] /verification-status 처리 중 예외 발생:`, error);
-    logger.error(`[API] /verification-status 처리 중 오류: ${error.message}`, { service: 'api', error });
+    // 에러 로깅
+    logError(context, error, {
+      url: req.body.url,
+      processingTime: Date.now() - startTime
+    });
     
-    return res.status(500).json({ 
-      success: false, 
-      error: `서버 오류: ${error.message}` 
+    // 처리 중인 요청에서 제거
+    if (req.body.url || req.body.content) {
+      const cacheKey = generateClaimId(req.body.url, req.body.content);
+      processingRequests.delete(cacheKey);
+    }
+    
+    return res.status(500).json({
+      success: false,
+      error: formatApiError(error)
     });
   }
+});
+
+/**
+ * @route   POST /api/extract-and-analyze
+ * @desc    URL에서 본문 추출, 요약, 주장 검증을 한번에 수행
+ * @access  Public
+ */
+router.post('/extract-and-analyze', limiter('standard'), async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    // URL은 필수
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        error: 'URL을 제공해야 합니다.'
+      });
+    }
+    
+    logger.info(`[API] 콘텐츠 추출 및 분석 요청: URL=${url}`);
+    
+    // URL 유효성 검사
+    let validUrl;
+    try {
+      const urlObj = new URL(url);
+      validUrl = urlObj.toString();
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        error: '유효하지 않은 URL 형식입니다.'
+      });
+    }
+    
+    // 캐시 키 생성
+    const cacheKey = `extract:${generateClaimId(validUrl, '')}`;
+    
+    // 캐시 확인
+    const cachedResult = await getCachedVerification(cacheKey);
+    if (cachedResult) {
+      logger.info(`[API] 캐시된 추출 결과 반환: ${cacheKey}`);
+      return res.json({
+        success: true,
+        cached: true,
+        result: cachedResult
+      });
+    }
+    
+    // 측정 시작
+    const startTime = Date.now();
+    
+    // 1. 콘텐츠 추출
+    let extractedContent = null;
+    let title = '';
+    let content = '';
+    
+    // FireCrawl 시도
+    try {
+      logger.info(`[API] FireCrawl로 콘텐츠 추출 시도: ${validUrl}`);
+      const extractResult = await factChecker.extractContentWithFireCrawl(validUrl);
+      
+      if (extractResult && extractResult.success) {
+        extractedContent = extractResult;
+        title = extractResult.title || '';
+        content = extractResult.content || '';
+        logger.info(`[API] FireCrawl 추출 성공: 내용 길이=${content.length}자`);
+      } else {
+        logger.warn(`[API] FireCrawl 추출 실패: ${extractResult?.error || '알 수 없는 오류'}`);
+      }
+    } catch (extractError) {
+      logger.error(`[API] FireCrawl 추출 오류: ${extractError.message}`);
+    }
+    
+    // FireCrawl 실패 시 contentExtractor 시도
+    if (!extractedContent || !extractedContent.success || content.length < 100) {
+      try {
+        logger.info(`[API] contentExtractor로 콘텐츠 추출 시도: ${validUrl}`);
+        const contentExtractor = require('../utils/contentExtractor');
+        const extracted = await contentExtractor.extractFromUrl(validUrl);
+        
+        if (extracted && extracted.title && extracted.content) {
+          title = extracted.title;
+          content = extracted.content;
+          logger.info(`[API] contentExtractor 추출 성공: 내용 길이=${content.length}자`);
+        } else {
+          logger.warn(`[API] contentExtractor 추출 실패`);
+        }
+      } catch (extractorError) {
+        logger.error(`[API] contentExtractor 오류: ${extractorError.message}`);
+      }
+    }
+    
+    // 추출 실패 시 오류 반환
+    if (!content || content.length < 100) {
+      return res.status(400).json({
+        success: false,
+        error: '콘텐츠를 추출할 수 없거나 추출된 내용이 너무 짧습니다.',
+        extractError: extractedContent?.error || '알 수 없는 오류'
+      });
+    }
+    
+    // 2. 콘텐츠 분석 (요약, 주장 추출, 주제 식별)
+    logger.info(`[API] AI 콘텐츠 분석 시작: 내용 길이=${content.length}자`);
+    const analysis = await factChecker.analyzeContentWithAI(content);
+    logger.info(`[API] AI 콘텐츠 분석 완료: 요약=${analysis.summary?.length || 0}자, 주장=${analysis.mainClaims?.length || 0}개, 주제=${analysis.topics?.length || 0}개`);
+    
+    // 3. 주요 주장 검증 (최대 3개)
+    const claimsToVerify = analysis.mainClaims.slice(0, 3);
+    logger.info(`[API] 주장 검증 시작: ${claimsToVerify.length}개 주장`);
+    
+    const verificationPromises = claimsToVerify.map(async (claim, index) => {
+      try {
+        const factCheckerIntegration = require('../services/factCheckerIntegration');
+        const verificationResult = await factCheckerIntegration.verifyClaim(claim.text, {
+          languageCode: 'ko',
+          maxResults: 3
+        });
+        
+        logger.info(`[API] 주장 ${index+1}/${claimsToVerify.length} 검증 완료: 신뢰도=${verificationResult.verification.trustScore}`);
+        
+        return {
+          claim: claim.text,
+          trustScore: verificationResult.verification.trustScore,
+          status: verificationResult.verification.status,
+          explanation: verificationResult.verification.explanation,
+          sources: (verificationResult.verification.sources || []).slice(0, 3)
+        };
+      } catch (verifyError) {
+        logger.warn(`[API] 주장 검증 오류: ${verifyError.message}`);
+        return {
+          claim: claim.text,
+          trustScore: 0.5,
+          status: 'UNKNOWN',
+          explanation: '검증 중 오류가 발생했습니다.',
+          sources: []
+        };
+      }
+    });
+    
+    // 주장 검증 결과 수집
+    const verifiedClaims = await Promise.all(verificationPromises);
+    
+    // 소요 시간 측정
+    const endTime = Date.now();
+    const processingTime = endTime - startTime;
+    
+    // 결과 구성
+    const result = {
+      url: validUrl,
+      title,
+      content: content.substring(0, 2000) + (content.length > 2000 ? '...' : ''), // 응답 크기 제한
+      summary: analysis.summary,
+      topics: analysis.topics,
+      verifiedClaims,
+      metadata: {
+        extractedAt: new Date().toISOString(),
+        contentLength: content.length,
+        extractionMethod: extractedContent?.success ? 'FireCrawl' : 'contentExtractor',
+        processingTime: `${processingTime}ms`
+      }
+    };
+    
+    // 결과 캐싱 (1시간)
+    await cacheVerification(cacheKey, result, 3600);
+    
+    // 응답 전송
+    logger.info(`[API] 추출 및 분석 완료: 소요시간=${processingTime}ms`);
+    
+    return res.json({
+      success: true,
+      cached: false,
+      processingTime: `${processingTime}ms`,
+      result
+    });
+  } catch (error) {
+    logger.error(`[API] 추출 및 분석 중 오류: ${error.message}`);
+    
+    return res.status(500).json({
+      success: false,
+      error: `처리 중 오류가 발생했습니다: ${error.message}`
+    });
+  }
+});
+
+/**
+ * Redis에서 캐시된 검증 결과 가져오기
+ * @param {string} key - 캐시 키
+ * @returns {Promise<Object|null>} - 캐시된 결과 또는 null
+ */
+async function getCachedVerification(key) {
+  try {
+    if (!global.redisClient) return null;
+    
+    const cached = await global.redisClient.get(key);
+    return cached ? JSON.parse(cached) : null;
+  } catch (error) {
+    logger.error(`캐시 조회 오류: ${error.message}`, { service: 'factchecker' });
+    return null;
+  }
+}
+
+/**
+ * Redis에 검증 결과 캐싱
+ * @param {string} key - 캐시 키
+ * @param {Object} result - 캐싱할 결과
+ * @param {number} ttl - 캐시 유효 시간(초), 기본 30분
+ * @returns {Promise<boolean>} - 성공 여부
+ */
+async function cacheVerification(key, result, ttl = 1800) {
+  try {
+    if (!global.redisClient) return false;
+    
+    await global.redisClient.set(key, JSON.stringify(result), 'EX', ttl);
+    return true;
+  } catch (error) {
+    logger.error(`캐시 저장 오류: ${error.message}`, { service: 'factchecker' });
+    return false;
+  }
+}
+
+/**
+ * @route   GET /api/sse
+ * @desc    서버 이벤트 스트림 연결
+ * @access  Public
+ */
+router.get('/sse', (req, res) => {
+  const clientId = req.query.clientId || Date.now().toString();
+  
+  // SSE 헤더 설정
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  
+  // 클라이언트에게 연결 성공 메시지 전송
+  res.write(`data: {"type": "connected", "clientId": "${clientId}"}\n\n`);
+  
+  console.log(`[SSE] 클라이언트 연결됨: ${clientId}`);
+  
+  // SSE 클라이언트 등록
+  factChecker.registerSSEClient({
+    id: clientId,
+    response: res
+  });
+  
+  // 연결 종료 시 클라이언트 제거
+  req.on('close', () => {
+    console.log(`[SSE] 클라이언트 연결 종료: ${clientId}`);
+    factChecker.removeSSEClient(clientId);
+  });
 });
 
 module.exports = router; 

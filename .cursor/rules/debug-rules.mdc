@@ -1,0 +1,96 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+name: "Debug Rules"
+description: "디버깅 규칙 정의"
+version: "1.0.0"
+author: "Cursor IDE"
+globs: ["**/*.{js,ts,jsx,tsx,py,java,cpp,cs}"]
+---
+
+# 디버깅 규칙
+
+## 1. 오류 분석 규칙
+
+### 런타임 에러 분석
+when: runtime_error_detected
+then:
+  - invoke: "sequential_thinking_mode"
+  - action: "에러 패턴 분석"
+  - invoke: "think_mode"
+  - action: "코드 수준 분석"
+  - invoke: "browser_tool.getConsoleErrors"
+  - analyze_error_pattern()
+  - suggest_solutions()
+
+### 브라우저 에러 분석
+when: browser_error_detected
+then:
+  - invoke: "browser_tool.getConsoleErrors"
+  - invoke: "sequential_thinking_mode"
+  - analyze_error_context()
+  - invoke: "think_mode"
+  - design_fix()
+
+## 2. 성능 디버깅 규칙
+
+### 성능 문제 분석
+when: performance_issue_detected
+then:
+  - invoke: "think_mode"
+  - analyze_bottlenecks()
+  - invoke: "browser_tool.runPerformanceAudit"
+  - invoke: "sequential_thinking_mode"
+  - plan_optimization()
+
+### 메모리 누수 분석
+when: memory_leak_suspected
+then:
+  - invoke: "sequential_thinking_mode"
+  - track_memory_patterns()
+  - invoke: "think_mode"
+  - analyze_allocation()
+  - invoke: "browser_tool.runDebuggerMode"
+
+## 3. UI 디버깅 규칙
+
+### 렌더링 문제
+when: rendering_issue_detected
+then:
+  - invoke: "browser_tool.takeScreenshot"
+  - invoke: "sequential_thinking_mode"
+  - analyze_render_flow()
+  - invoke: "think_mode"
+  - optimize_rendering()
+
+### 레이아웃 문제
+when: layout_issue_detected
+then:
+  - invoke: "browser_tool.runAccessibilityAudit"
+  - invoke: "sequential_thinking_mode"
+  - analyze_layout_structure()
+  - invoke: "think_mode"
+  - suggest_improvements()
+
+## 4. 네트워크 디버깅 규칙
+
+### API 에러 분석
+when: api_error_detected
+then:
+  - invoke: "browser_tool.getNetworkErrors"
+  - invoke: "sequential_thinking_mode"
+  - analyze_request_flow()
+  - invoke: "think_mode"
+  - suggest_fixes()
+
+### 네트워크 성능
+when: network_performance_issue
+then:
+  - invoke: "browser_tool.getNetworkLogs"
+  - invoke: "sequential_thinking_mode"
+  - analyze_performance_patterns()
+  - invoke: "think_mode"
+  - optimize_requests()

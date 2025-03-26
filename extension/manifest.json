@@ -12,28 +12,28 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs",
     "contextMenus",
-    "alarms",
-    "tabCapture"
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
-    "*://*.youtube.com/*",
-    "*://*.naver.com/*",
-    "*://*.kakao.com/*",
-    "*://*.yonhapnews.co.kr/*",
-    "*://*.yna.co.kr/*",
-    "*://*.chosun.com/*",
-    "*://*.donga.com/*",
-    "*://*.hani.co.kr/*",
-    "*://*.kmib.co.kr/*",
-    "*://*.khan.co.kr/*",
-    "*://*.mk.co.kr/*",
-    "*://*.mt.co.kr/*",
-    "*://*.sedaily.com/*",
-    "*://*.news.naver.com/*",
-    "*://*.news.daum.net/*",
-    "http://localhost:3000/*"
+    "http://localhost:3000/*",
+    "https://mcp.claude.ai/*",
+    "https://*.naver.com/*",
+    "https://*.daum.net/*",
+    "https://*.youtube.com/*",
+    "https://*.kakao.com/*",
+    "https://*.cursor.com/*",
+    "https://*.yonhapnews.co.kr/*",
+    "https://*.yna.co.kr/*",
+    "https://*.chosun.com/*",
+    "https://*.donga.com/*",
+    "https://*.hani.co.kr/*",
+    "https://*.kmib.co.kr/*",
+    "https://*.khan.co.kr/*",
+    "https://*.mk.co.kr/*",
+    "https://*.mt.co.kr/*",
+    "https://*.sedaily.com/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",
@@ -45,30 +45,9 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "*://*.youtube.com/*",
-        "*://*.naver.com/*",
-        "*://*.kakao.com/*",
-        "*://*.yonhapnews.co.kr/*",
-        "*://*.yna.co.kr/*",
-        "*://*.chosun.com/*",
-        "*://*.donga.com/*",
-        "*://*.hani.co.kr/*",
-        "*://*.kmib.co.kr/*",
-        "*://*.khan.co.kr/*",
-        "*://*.mk.co.kr/*",
-        "*://*.mt.co.kr/*",
-        "*://*.sedaily.com/*",
-        "*://*.news.naver.com/*",
-        "*://*.news.daum.net/*"
-      ],
-      "js": [
-        "content/content.js"
-      ],
-      "css": [
-        "content/content.css"
-      ],
-      "run_at": "document_idle"
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"]
     }
   ],
   "background": {

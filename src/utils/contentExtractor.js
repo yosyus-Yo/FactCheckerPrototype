@@ -19,7 +19,7 @@ async function extractFromUrl(url) {
     console.log(`[콘텐츠 추출] URL 요청 시작: ${url}`);
     
     const startTime = Date.now();
-    
+      
     // MCP 브라우저 기반 추출 시도
     const result = await extractWithMcpBrowser(url);
     

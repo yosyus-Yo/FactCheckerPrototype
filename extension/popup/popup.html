@@ -196,40 +196,36 @@
       </div>
     </div>
     
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-label">검색 서비스:</span>
+        <span id="search-service-status" class="status-value">확인 중...</span>
+      </div>
+    </div>
+    
+    <div class="buttons-container">
+      <button id="verify-button" class="main-button">주장 검증</button>
+      <button id="activate-button" class="button">활성화</button>
+      <button id="deactivate-button" class="button">비활성화</button>
+    </div>
+    
     <div class="stats-container">
-      <div class="stats-item">
-        <span class="stats-label">감지된 주장:</span>
-        <span id="claims-count" class="stats-value">0</span>
-      </div>
-      <div class="stats-item">
-        <span class="stats-label">검증된 주장:</span>
-        <span id="verified-count" class="stats-value">0</span>
-      </div>
-    </div>
-    
-    <div class="controls-container">
-      <button id="activate-button" class="control-button activate">
-        활성화
-      </button>
-      <button id="deactivate-button" class="control-button deactivate" style="display: none;">
-        비활성화
-      </button>
-      
-      <div class="capture-controls">
-        <button id="capture-button" class="control-button capture" style="display: none;">
-          화면 캡처 시작
-        </button>
-        <button id="stop-capture-button" class="control-button stop-capture" style="display: none;">
-          화면 캡처 중지
-        </button>
+      <div class="stats">
+        <div class="stat-item">
+          <div class="stat-value" id="claims-count">0</div>
+          <div class="stat-label">감지된 주장</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="verified-count">0</div>
+          <div class="stat-label">검증된 주장</div>
+        </div>
       </div>
     </div>
     
-    <footer>
-      <p>© 2025 FactChecker 프로젝트</p>
-    </footer>
+    <div class="footer">
+      <p>© 2024 FactChecker</p>
+    </div>
   </div>
-  
   <script src="popup.js"></script>
 </body>
 </html> 

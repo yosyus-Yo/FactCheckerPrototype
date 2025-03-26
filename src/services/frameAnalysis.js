@@ -13,6 +13,9 @@ const claimDetection = require('./claimDetection');
 const helpers = require('../utils/helpers');
 const config = require('../config');
 
+// 환경변수에서 모델명 가져오기
+const GEMINI_MODEL = process.env.GOOGLE_AI_MODEL || "gemini-2.0-flash";
+
 // Google Gemini API 설정
 const googleAI = new GoogleGenerativeAI(config.apiKeys.googleAI);
 
@@ -132,8 +135,8 @@ function fallbackClaimExtraction(text) {
  */
 async function extractTextFromImage(imagePath) {
   try {
-    // Google Gemini 1.5 Flash 모델 사용 (Pro 대신)
-    const model = googleAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Google Gemini 모델 사용
+    const model = googleAI.getGenerativeModel({ model: GEMINI_MODEL });
     
     // 이미지 파일을 읽고 바이너리 데이터로 변환
     const imageData = fs.readFileSync(imagePath);
@@ -236,7 +239,7 @@ async function extractClaims(content) {
       content.substring(0, maxContentLength) + '...' : content;
     
     // Gemini 모델을 사용하여 주요 주장 추출
-    const geminiResponse = await googleAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(`
+    const geminiResponse = await googleAI.getGenerativeModel({ model: GEMINI_MODEL }).generateContent(`
       **분석 대상 뉴스 기사**:
       "${truncatedContent}"
       
@@ -350,7 +353,7 @@ async function verifyNewsContent(claim, content, sourceUrl) {
       JSON만 응답해주세요.
     `;
     
-    const geminiResponse = await googleAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(geminiPrompt);
+    const geminiResponse = await googleAI.getGenerativeModel({ model: GEMINI_MODEL }).generateContent(geminiPrompt);
     
     if (!geminiResponse || !geminiResponse.response || !geminiResponse.response.text()) {
       throw new Error('Gemini 응답 없음');

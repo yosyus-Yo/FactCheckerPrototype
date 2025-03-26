@@ -7,6 +7,11 @@ const axios = require('axios');
 const logger = require('../utils/logger');
 const { claimPatterns } = require('../utils/helpers');
 const config = require('../config');
+const cheerio = require('cheerio');
+const { cleanUrl, sanitizeHtml } = require('../utils/helpers');
+
+// 환경변수에서 모델명 가져오기
+const GEMINI_MODEL = process.env.GOOGLE_AI_MODEL || "gemini-2.0-flash";
 
 // Google AI 초기화
 const genAI = new GoogleGenerativeAI(config.api.googleAi.apiKey);
@@ -75,7 +80,7 @@ async function extractClaimsFromText(text) {
  */
 async function analyzeClaimsWithAI(text) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     
     const prompt = `
     다음 텍스트에서 사실 확인이 필요한 주장을 추출해주세요:
@@ -412,10 +417,562 @@ async function searchExistingFactChecks(query) {
   }
 }
 
+/**
+ * 콘텐츠 분석 (AI 활용)
+ * @param {Object} content 추출된 콘텐츠 객체
+ * @returns {Promise<Object>} 분석 결과
+ */
+async function analyzeContent(content) {
+  try {
+    // 텍스트가 너무 짧은 경우 분석 스킵
+    if (!content.textContent || content.textContent.length < 100) {
+      return {
+        summary: content.description || '콘텐츠가 충분하지 않습니다.',
+        topics: [],
+        contentType: 'unknown',
+        language: 'unknown'
+      };
+    }
+    
+    // 요약 생성
+    const summary = await generateSummary(content.textContent);
+    
+    // 주제어 추출
+    const topics = await extractTopics(content.textContent);
+    
+    // 콘텐츠 유형 분류
+    const contentType = await classifyContentType(content.textContent);
+    
+    // 언어 감지
+    const language = detectLanguage(content.textContent);
+    
+    return {
+      summary,
+      topics,
+      contentType,
+      language
+    };
+  } catch (error) {
+    logger.error(`콘텐츠 분석 오류: ${error.message}`);
+    return {
+      summary: content.description || '내용 요약을 생성할 수 없습니다.',
+      topics: [],
+      contentType: 'unknown',
+      language: 'unknown'
+    };
+  }
+}
+
+/**
+ * AI를 사용하여 콘텐츠 요약 생성
+ * @param {string} text 원본 텍스트
+ * @returns {Promise<string>} 요약된 텍스트
+ */
+async function generateSummary(text) {
+  try {
+    // 텍스트가 너무 길면 잘라내기
+    const truncatedText = text.length > 15000 ? text.substring(0, 15000) + '...' : text;
+    
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    
+    const prompt = `다음 텍스트의 주요 내용을 3-5문장으로 요약해주세요:
+    
+    "${truncatedText}"`;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text().trim();
+  } catch (error) {
+    logger.error(`요약 생성 오류: ${error.message}`);
+    return '요약을 생성할 수 없습니다.';
+  }
+}
+
+/**
+ * AI를 사용하여 주제어 추출
+ * @param {string} text 원본 텍스트
+ * @returns {Promise<Array>} 주제어 목록
+ */
+async function extractTopics(text) {
+  try {
+    // 텍스트가 너무 길면 잘라내기
+    const truncatedText = text.length > 10000 ? text.substring(0, 10000) + '...' : text;
+    
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    
+    const prompt = `다음 텍스트의 주요 주제어를 5개 이하의 키워드로 추출해주세요.
+    키워드만 쉼표로 구분하여 응답해주세요:
+    
+    "${truncatedText}"`;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    
+    // 응답에서 키워드 추출
+    const topicsText = response.text().trim();
+    return topicsText.split(/,\s*/).filter(t => t.length > 0).slice(0, 5);
+  } catch (error) {
+    logger.error(`주제어 추출 오류: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * AI를 사용하여 콘텐츠 유형 분류
+ * @param {string} text 원본 텍스트
+ * @returns {Promise<string>} 콘텐츠 유형
+ */
+async function classifyContentType(text) {
+  try {
+    // 텍스트가 너무 길면 잘라내기
+    const truncatedText = text.length > 5000 ? text.substring(0, 5000) + '...' : text;
+    
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    
+    const prompt = `다음 텍스트의 콘텐츠 유형을 다음 카테고리 중 하나로 분류해주세요:
+    - news (뉴스 기사)
+    - blog (블로그 포스트)
+    - academic (학술 자료)
+    - product (제품 설명)
+    - review (리뷰)
+    - opinion (의견/칼럼)
+    - social (소셜 미디어 글)
+    - other (기타)
+    
+    카테고리만 단일 단어로 응답해주세요:
+    
+    "${truncatedText}"`;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    
+    // 응답에서 콘텐츠 유형 추출
+    const contentType = response.text().trim().toLowerCase();
+    
+    // 허용된 콘텐츠 유형만 반환
+    const allowedTypes = ['news', 'blog', 'academic', 'product', 'review', 'opinion', 'social'];
+    return allowedTypes.includes(contentType) ? contentType : 'other';
+  } catch (error) {
+    logger.error(`콘텐츠 유형 분류 오류: ${error.message}`);
+    return 'unknown';
+  }
+}
+
+/**
+ * 텍스트의 언어 감지
+ * @param {string} text 원본 텍스트
+ * @returns {string} 감지된 언어 코드
+ */
+function detectLanguage(text) {
+  try {
+    // 간단한 언어 감지 방법 (한글, 영어, 일본어, 중국어 구분)
+    const sample = text.substring(0, 500);
+    
+    // 한글 비율 확인
+    const koreanChars = sample.match(/[가-힣]/g) || [];
+    const koreanRatio = koreanChars.length / sample.length;
+    
+    // 영어 비율 확인
+    const englishChars = sample.match(/[a-zA-Z]/g) || [];
+    const englishRatio = englishChars.length / sample.length;
+    
+    // 일본어 비율 확인 (히라가나, 가타카나)
+    const japaneseChars = sample.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || [];
+    const japaneseRatio = japaneseChars.length / sample.length;
+    
+    // 중국어 비율 확인
+    const chineseChars = sample.match(/[\u4E00-\u9FFF]/g) || [];
+    const chineseRatio = chineseChars.length / sample.length;
+    
+    // 비율에 따라 언어 결정
+    if (koreanRatio > 0.15) return 'ko';
+    if (japaneseRatio > 0.15) return 'ja';
+    if (chineseRatio > 0.15) return 'zh';
+    if (englishRatio > 0.15) return 'en';
+    
+    return 'unknown';
+  } catch (error) {
+    logger.error(`언어 감지 오류: ${error.message}`);
+    return 'unknown';
+  }
+}
+
+/**
+ * URL 유효성 검증
+ * @param {string} url 검증할 URL
+ * @returns {boolean} 유효성 여부
+ */
+function isValidUrl(url) {
+  try {
+    const pattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/;
+    return pattern.test(url) || url.startsWith('http://localhost');
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * 텍스트 및 미디어 콘텐츠를 인식하고 분류하는 서비스
+ */
+class ContentRecognitionService {
+  constructor() {
+    // 기본 설정 초기화
+    this.axiosConfig = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+      },
+      timeout: 15000, // 15초 타임아웃
+      maxRedirects: 5  // 최대 리다이렉트 횟수
+    };
+    
+    logger.info(`ContentRecognitionService 초기화 완료 (모델: ${GEMINI_MODEL})`);
+  }
+
+  /**
+   * URL에서 미디어 콘텐츠 추출
+   * @param {string} url 웹 페이지 URL
+   * @returns {Promise<Object>} 추출된 콘텐츠 객체
+   */
+  async extractFromUrl(url) {
+    try {
+      const cleanedUrl = cleanUrl(url);
+      
+      // URL 유효성 검증
+      if (!this.isValidUrl(cleanedUrl)) {
+        throw new Error('유효하지 않은 URL 형식입니다.');
+      }
+      
+      logger.info(`콘텐츠 추출 시작: ${cleanedUrl}`);
+      
+      // 웹 페이지 HTML 가져오기
+      const { data: html } = await axios.get(cleanedUrl, this.axiosConfig);
+      
+      // HTML에서 주요 콘텐츠 추출
+      const extractedContent = this.extractContentFromHtml(html, cleanedUrl);
+      
+      // 콘텐츠 유형 및 메타데이터 분석
+      const analyzedContent = await this.analyzeContent(extractedContent);
+      
+      return {
+        success: true,
+        url: cleanedUrl,
+        ...extractedContent,
+        ...analyzedContent
+      };
+    } catch (error) {
+      logger.error(`콘텐츠 추출 오류 (${url}): ${error.message}`);
+      return {
+        success: false,
+        url: url,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * HTML에서 주요 콘텐츠 추출
+   * @param {string} html HTML 문자열
+   * @param {string} url 원본 URL
+   * @returns {Object} 추출된 콘텐츠 객체
+   */
+  extractContentFromHtml(html, url) {
+    try {
+      const $ = cheerio.load(html);
+      
+      // 페이지 기본 정보 추출
+      const title = $('title').text().trim() || $('h1').first().text().trim() || '';
+      const description = $('meta[name="description"]').attr('content') || '';
+      const ogImage = $('meta[property="og:image"]').attr('content') || '';
+      const author = $('meta[name="author"]').attr('content') || $('meta[property="article:author"]').attr('content') || '';
+      const publishedDate = $('meta[property="article:published_time"]').attr('content') || '';
+      
+      // 주요 콘텐츠 영역 찾기
+      let mainContent = '';
+      let textContent = '';
+      
+      // 뉴스 기사 구조 우선 확인 (schema.org 마크업 활용)
+      const articleBody = $('[itemprop="articleBody"]').text() || $('article').text() || '';
+      
+      if (articleBody.length > 200) {
+        mainContent = articleBody;
+      } else {
+        // 일반적인 콘텐츠 선택자 시도
+        const contentSelectors = [
+          'article', '.article', '.post', '.content', '.entry-content',
+          '.post-content', '.story', '.news-content', '#content', '#main',
+          '.main', 'main', '.container', '#container'
+        ];
+        
+        for (const selector of contentSelectors) {
+          const content = $(selector).text();
+          if (content && content.length > mainContent.length) {
+            mainContent = content;
+          }
+        }
+        
+        // 선택자로 찾지 못한 경우 본문 영역 추정
+        if (mainContent.length < 200) {
+          // p 태그 내용 모두 합치기
+          const paragraphs = $('p').map((i, el) => $(el).text().trim()).get();
+          textContent = paragraphs.join('\n\n');
+          
+          if (textContent.length > 200) {
+            mainContent = textContent;
+          } else {
+            // 최후의 수단: body 전체 텍스트 (불필요한 요소 제외)
+            $('header, footer, nav, aside, script, style, .header, .footer, .nav, .menu, .sidebar, .ad, .advertisement, .banner').remove();
+            mainContent = $('body').text();
+          }
+        }
+      }
+      
+      // 텍스트 정리
+      mainContent = sanitizeHtml(mainContent)
+        .replace(/\s+/g, ' ')
+        .replace(/\n\s*\n/g, '\n')
+        .trim();
+      
+      // 이미지 URL 추출
+      const images = [];
+      $('img').each((i, img) => {
+        const src = $(img).attr('src') || $(img).attr('data-src');
+        const alt = $(img).attr('alt') || '';
+        
+        if (src && !src.includes('data:image') && !src.includes('pixel.gif')) {
+          // 상대 URL을 절대 URL로 변환
+          const imageUrl = src.startsWith('http') ? src : new URL(src, url).href;
+          images.push({ url: imageUrl, alt });
+        }
+      });
+      
+      return {
+        title,
+        description,
+        mainContent,
+        textContent: textContent || mainContent,
+        images,
+        metadata: {
+          author,
+          publishedDate,
+          ogImage,
+          url
+        }
+      };
+    } catch (error) {
+      logger.error(`HTML 파싱 오류: ${error.message}`);
+      return {
+        title: '',
+        description: '',
+        mainContent: '',
+        textContent: '',
+        images: [],
+        metadata: { url }
+      };
+    }
+  }
+
+  /**
+   * 콘텐츠 분석 (AI 활용)
+   * @param {Object} content 추출된 콘텐츠 객체
+   * @returns {Promise<Object>} 분석 결과
+   */
+  async analyzeContent(content) {
+    try {
+      // 텍스트가 너무 짧은 경우 분석 스킵
+      if (!content.textContent || content.textContent.length < 100) {
+        return {
+          summary: content.description || '콘텐츠가 충분하지 않습니다.',
+          topics: [],
+          contentType: 'unknown',
+          language: 'unknown'
+        };
+      }
+      
+      // 요약 생성
+      const summary = await this.generateSummary(content.textContent);
+      
+      // 주제어 추출
+      const topics = await this.extractTopics(content.textContent);
+      
+      // 콘텐츠 유형 분류
+      const contentType = await this.classifyContentType(content.textContent);
+      
+      // 언어 감지
+      const language = this.detectLanguage(content.textContent);
+      
+      return {
+        summary,
+        topics,
+        contentType,
+        language
+      };
+    } catch (error) {
+      logger.error(`콘텐츠 분석 오류: ${error.message}`);
+      return {
+        summary: content.description || '내용 요약을 생성할 수 없습니다.',
+        topics: [],
+        contentType: 'unknown',
+        language: 'unknown'
+      };
+    }
+  }
+
+  /**
+   * AI를 사용하여 콘텐츠 요약 생성
+   * @param {string} text 원본 텍스트
+   * @returns {Promise<string>} 요약된 텍스트
+   */
+  async generateSummary(text) {
+    try {
+      // 텍스트가 너무 길면 잘라내기
+      const truncatedText = text.length > 15000 ? text.substring(0, 15000) + '...' : text;
+      
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      
+      const prompt = `다음 텍스트의 주요 내용을 3-5문장으로 요약해주세요:
+      
+      "${truncatedText}"`;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text().trim();
+    } catch (error) {
+      logger.error(`요약 생성 오류: ${error.message}`);
+      return '요약을 생성할 수 없습니다.';
+    }
+  }
+
+  /**
+   * AI를 사용하여 주제어 추출
+   * @param {string} text 원본 텍스트
+   * @returns {Promise<Array>} 주제어 목록
+   */
+  async extractTopics(text) {
+    try {
+      // 텍스트가 너무 길면 잘라내기
+      const truncatedText = text.length > 10000 ? text.substring(0, 10000) + '...' : text;
+      
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      
+      const prompt = `다음 텍스트의 주요 주제어를 5개 이하의 키워드로 추출해주세요.
+      키워드만 쉼표로 구분하여 응답해주세요:
+      
+      "${truncatedText}"`;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      
+      // 응답에서 키워드 추출
+      const topicsText = response.text().trim();
+      return topicsText.split(/,\s*/).filter(t => t.length > 0).slice(0, 5);
+    } catch (error) {
+      logger.error(`주제어 추출 오류: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * AI를 사용하여 콘텐츠 유형 분류
+   * @param {string} text 원본 텍스트
+   * @returns {Promise<string>} 콘텐츠 유형
+   */
+  async classifyContentType(text) {
+    try {
+      // 텍스트가 너무 길면 잘라내기
+      const truncatedText = text.length > 5000 ? text.substring(0, 5000) + '...' : text;
+      
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      
+      const prompt = `다음 텍스트의 콘텐츠 유형을 다음 카테고리 중 하나로 분류해주세요:
+      - news (뉴스 기사)
+      - blog (블로그 포스트)
+      - academic (학술 자료)
+      - product (제품 설명)
+      - review (리뷰)
+      - opinion (의견/칼럼)
+      - social (소셜 미디어 글)
+      - other (기타)
+      
+      카테고리만 단일 단어로 응답해주세요:
+      
+      "${truncatedText}"`;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      
+      // 응답에서 콘텐츠 유형 추출
+      const contentType = response.text().trim().toLowerCase();
+      
+      // 허용된 콘텐츠 유형만 반환
+      const allowedTypes = ['news', 'blog', 'academic', 'product', 'review', 'opinion', 'social'];
+      return allowedTypes.includes(contentType) ? contentType : 'other';
+    } catch (error) {
+      logger.error(`콘텐츠 유형 분류 오류: ${error.message}`);
+      return 'unknown';
+    }
+  }
+
+  /**
+   * 텍스트의 언어 감지
+   * @param {string} text 원본 텍스트
+   * @returns {string} 감지된 언어 코드
+   */
+  detectLanguage(text) {
+    try {
+      // 간단한 언어 감지 방법 (한글, 영어, 일본어, 중국어 구분)
+      const sample = text.substring(0, 500);
+      
+      // 한글 비율 확인
+      const koreanChars = sample.match(/[가-힣]/g) || [];
+      const koreanRatio = koreanChars.length / sample.length;
+      
+      // 영어 비율 확인
+      const englishChars = sample.match(/[a-zA-Z]/g) || [];
+      const englishRatio = englishChars.length / sample.length;
+      
+      // 일본어 비율 확인 (히라가나, 가타카나)
+      const japaneseChars = sample.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || [];
+      const japaneseRatio = japaneseChars.length / sample.length;
+      
+      // 중국어 비율 확인
+      const chineseChars = sample.match(/[\u4E00-\u9FFF]/g) || [];
+      const chineseRatio = chineseChars.length / sample.length;
+      
+      // 비율에 따라 언어 결정
+      if (koreanRatio > 0.15) return 'ko';
+      if (japaneseRatio > 0.15) return 'ja';
+      if (chineseRatio > 0.15) return 'zh';
+      if (englishRatio > 0.15) return 'en';
+      
+      return 'unknown';
+    } catch (error) {
+      logger.error(`언어 감지 오류: ${error.message}`);
+      return 'unknown';
+    }
+  }
+
+  /**
+   * URL 유효성 검증
+   * @param {string} url 검증할 URL
+   * @returns {boolean} 유효성 여부
+   */
+  isValidUrl(url) {
+    try {
+      const pattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/;
+      return pattern.test(url) || url.startsWith('http://localhost');
+    } catch (error) {
+      return false;
+    }
+  }
+}
+
 module.exports = {
   extractClaimsFromText,
   processAudioToText,
   processVideo,
   searchExistingFactChecks,
-  processMediaStream
+  processMediaStream,
+  ContentRecognitionService
 }; 

@@ -1,4 +1,25 @@
-require('dotenv').config();
+// .env 파일 로드 (최우선)
+const dotenv = require('dotenv');
+const result = dotenv.config();
+
+// 환경 변수 로드 결과 확인
+if (result.error) {
+  console.error('.env 파일 로드 중 오류:', result.error);
+} else {
+  console.log('.env 파일 성공적으로 로드됨');
+  // API 키 확인 (보안을 위해 일부만 표시)
+  const googleAiKey = process.env.GOOGLE_AI_API_KEY;
+  if (googleAiKey) {
+    const maskedKey = googleAiKey.length > 8 ? 
+      `${googleAiKey.substring(0, 4)}...${googleAiKey.substring(googleAiKey.length - 4)}` : 
+      '(유효하지 않은 키)';
+    console.log(`GOOGLE_AI_API_KEY 환경변수 확인: ${maskedKey}, 길이: ${googleAiKey.length}`);
+  } else {
+    console.error('GOOGLE_AI_API_KEY 환경변수가 설정되지 않았습니다!');
+  }
+}
+
+// Express 및 필요한 모듈 import
 const express = require('express');
 const mongoose = require('mongoose');
 const redis = require('redis');
@@ -56,7 +77,12 @@ if (enableClusterMode && process.env.NODE_ENV === 'production' && cluster.isMast
   // HTTP 요청 로깅
   if (process.env.NODE_ENV !== 'test') {
     const morgan = require('morgan');
-    app.use(morgan('dev'));
+    // 상태 확인 엔드포인트 로깅 제외
+    app.use(morgan('dev', {
+      skip: (req, res) => {
+        return req.url.includes('/api/status') || req.url.includes('/api/health');
+      }
+    }));
   }
 
   // 라우트 설정
@@ -71,6 +97,10 @@ if (enableClusterMode && process.env.NODE_ENV === 'production' && cluster.isMast
 
   // 라우트 로깅 미들웨어 추가
   app.use((req, res, next) => {
+    // 상태 확인 엔드포인트는 로깅 제외 (너무 많은 로그 생성 방지)
+    if (req.url.includes('/api/status') || req.url.includes('/api/health')) {
+      return next();
+    }
     console.log(`${req.method} ${req.url}`);
     next();
   });

@@ -56,6 +56,12 @@ const api = {
   googleAi: {
     apiKey: process.env.GOOGLE_AI_API_KEY || '',
     enabled: process.env.GOOGLE_AI_ENABLED === 'true' // Google AI API 활성화 여부
+  },
+  tavily: {
+    apiKey: process.env.TAVILY_API_KEY || '',
+    enabled: process.env.TAVILY_ENABLED === 'true',
+    searchDepth: process.env.TAVILY_SEARCH_DEPTH || 'advanced',
+    maxResults: parseInt(process.env.TAVILY_MAX_RESULTS, 10) || 5
   }
 };
 
@@ -105,6 +111,15 @@ const features = {
   metrics: process.env.FEATURE_METRICS === 'true' // 메트릭스 수집 활성화 여부
 };
 
+// 외부 서비스 설정
+const services = {
+  firecrawl: {
+    enabled: process.env.FIRECRAWL_ENABLED === 'true',
+    url: process.env.FIRECRAWL_URL || 'https://mcp.claude.ai/mcp/server/firecrawl',
+    timeout: parseInt(process.env.FIRECRAWL_TIMEOUT_MS, 10) || 15000 // 15초 타임아웃
+  }
+};
+
 // WebXR 설정
 const webxr = {
   enabled: process.env.WEBXR_ENABLED === 'true', // WebXR 활성화 여부
@@ -149,5 +164,6 @@ module.exports = {
   webxr,
   cors,
   apiKeys,
-  tempFiles
+  tempFiles,
+  services
 }; 

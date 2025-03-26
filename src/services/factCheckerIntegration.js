@@ -838,10 +838,26 @@ class MultiAPIFactChecker {
    * @returns {Promise<Array<Array>>} - API별 검증 결과 배열
    */
   async verifyWithMultipleAPIs(claimText, options = {}) {
-    // 사용할 API 어댑터 선택
-    const adaptersToUse = options.apis 
-      ? options.apis.map(api => this.adapters[api]).filter(Boolean)
-      : Object.values(this.adapters);
+    // 사용할 API 어댑터 선택 (FireCrawl 비활성화)
+    let adaptersToUse;
+    
+    if (options.apis) {
+      // FireCrawl을 제외한 지정된 API만 사용
+      adaptersToUse = options.apis
+        .filter(api => api !== 'firecrawl')
+        .map(api => this.adapters[api])
+        .filter(Boolean);
+    } else {
+      // 기본적으로 FireCrawl을 제외한 모든 API 사용
+      adaptersToUse = Object.entries(this.adapters)
+        .filter(([key]) => key !== 'firecrawl')
+        .map(([_, adapter]) => adapter);
+    }
+    
+    // 브레이브와 Tavily에 더 높은 우선순위 부여 (사용 가능한 경우)
+    if (!options.apis || options.apis.includes('brave_search') || options.apis.includes('tavily')) {
+      logger.info('브레이브 검색과 Tavily API를 우선적으로 사용하여 검증합니다.');
+    }
     
     if (adaptersToUse.length === 0) {
       throw new Error('사용 가능한 API 어댑터가 없습니다.');

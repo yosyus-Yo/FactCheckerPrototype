@@ -13,7 +13,10 @@ const tokenizer = new natural.SentenceTokenizer();
 const tfidf = new natural.TfIdf();
 
 // Google AI 초기화
-const genAI = new GoogleGenerativeAI(config.api.googleAi.apiKey);
+const genAI = new GoogleGenerativeAI({apiKey: config.api.googleAi.apiKey});
+
+// 환경변수에서 모델명 가져오기
+const GEMINI_MODEL = process.env.GOOGLE_AI_MODEL || "gemini-2.0-flash";
 
 /**
  * 주장 유형 정의
@@ -262,7 +265,7 @@ async function classifyClaimsWithAI(claimCandidates) {
       ? claimCandidates.slice(0, 10) 
       : claimCandidates;
     
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
     
     const claimTexts = candidatesToProcess.map(c => c.text).join('\n\n');
     

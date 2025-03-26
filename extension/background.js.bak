@@ -5,20 +5,8 @@
 
 // 상태 변수
 let connectionStatus = 'disconnected';
-
-// 서버 URL 설정 (개발/프로덕션 환경에 따라 다르게 설정)
-const BASE_SERVER_URL = 'http://localhost:3000';
-const API_PATH = '/api';
-const serverUrl = BASE_SERVER_URL + API_PATH;
-
-console.log('[디버그] 서버 URL 설정:', {
-  BASE_SERVER_URL,
-  API_PATH,
-  serverUrl,
-  timestamp: new Date().toISOString(),
-  environment: 'development'
-});
-
+let serverUrl = 'http://localhost:3000';
+let API_BASE_URL = 'http://localhost:3000'; // API 기본 URL 추가
 let pendingRequests = new Map();
 let activeConnections = new Map(); // 활성 연결 추적
 let iconError = false; // 아이콘 오류 추적
@@ -28,7 +16,7 @@ let previousServerStatus = 'disconnected'; // 이전 서버 상태 초기화
 let serverStatus = {
   isConnected: false,
   lastChecked: null,
-  url: BASE_SERVER_URL
+  url: 'http://localhost:3000'
 };
 
 // SSE 연결 관리
@@ -42,28 +30,23 @@ chrome.runtime.onInstalled.addListener(async () => {
   
   // 서버 상태 확인
   try {
-    const response = await fetch(`${serverUrl}/status`);
+    const response = await fetch(`${serverUrl}/api/status`);
     if (response.ok) {
       const data = await response.json();
       console.log('백엔드 서버 상태:', data);
-      serverStatus.isConnected = true;
-      serverStatus.lastChecked = new Date().toISOString();
     } else {
       console.warn(`백엔드 서버 오류: ${response.status}`);
-      serverStatus.isConnected = false;
     }
   } catch (error) {
     console.error('백엔드 서버 연결 오류:', error);
-    serverStatus.isConnected = false;
   }
   
   // 로컬 스토리지 초기화
   try {
     chrome.storage.local.set({
-      isActive: serverStatus.isConnected,
-      lastChecked: serverStatus.lastChecked,
-      serverStatus: serverStatus.isConnected ? 'connected' : 'disconnected',
-      serverUrl: serverUrl
+      isActive: false,
+      lastChecked: null,
+      serverStatus: 'disconnected'
     });
   } catch (error) {
     console.error('로컬 스토리지 초기화 오류:', error);
@@ -93,30 +76,8 @@ chrome.runtime.onInstalled.addListener(async () => {
  * 컨텍스트 메뉴 클릭 이벤트 처리
  */
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  console.log('[디버그] 컨텍스트 메뉴 클릭됨:', info.menuItemId);
-  console.log('[디버그] 탭 정보:', {
-    tabId: tab.id,
-    url: tab.url,
-    title: tab.title,
-    status: tab.status
-  });
-  
   if (info.menuItemId === 'factchecker-verify') {
-    console.log('[디버그] 주장검증 메뉴 클릭됨:', {
-      tabId: tab.id,
-      url: tab.url,
-      title: tab.title
-    });
-    
-    // 서버 상태 확인
-    if (!serverStatus.isConnected) {
-      console.warn('[경고] 서버 연결이 없습니다. 연결 상태를 확인합니다.');
-      checkServerConnection();
-    } else {
-      console.log('[디버그] 서버 연결 상태 양호:', serverStatus);
-    }
-    
-    console.log('[디버그] 탭에 메시지 전송 시도 (verifyNewsContent):', tab.id);
+    console.log('[디버그] 주장검증 메뉴 클릭됨:', tab.url);
     
     // 현재 탭에 뉴스 검증 요청 메시지 전송
     safelySendMessage(tab.id, { action: 'verifyNewsContent' })
@@ -125,45 +86,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       })
       .catch(error => {
         console.error('[오류] 메시지 전송 실패:', error);
-        
-        console.log('[디버그] 콘텐츠 스크립트 주입 시도:', tab.id);
-        
-        // 콘텐츠 스크립트가 응답하지 않는 경우, 스크립트 주입 시도
-        injectContentScript(tab.id)
-          .then(() => {
-            console.log('[디버그] 콘텐츠 스크립트 주입 성공, 0.5초 후 메시지 재전송');
-            
-            // 스크립트 주입 후 짧은 대기 시간 후 재시도
-            setTimeout(() => {
-              console.log('[디버그] 메시지 재전송 시도:', tab.id);
-              
-              safelySendMessage(tab.id, { action: 'verifyNewsContent' })
-                .then(retryResponse => {
-                  console.log('[디버그] 재시도 후 응답:', retryResponse);
-                })
-                .catch(retryError => {
-                  console.error('[오류] 재시도 후에도 실패:', retryError);
-                  // 사용자에게 알림
-                  chrome.notifications.create({
-                    type: 'basic',
-                    iconUrl: 'icons/icon48.png',
-                    title: 'FactChecker 오류',
-                    message: '뉴스 콘텐츠를 분석할 수 없습니다. 페이지를 새로고침하고 다시 시도해보세요.'
-                  });
-                });
-            }, 500);
-          })
-          .catch(injectError => {
-            console.error('[오류] 콘텐츠 스크립트 주입 실패:', injectError);
-            
-            // 사용자에게 알림
-            chrome.notifications.create({
-              type: 'basic',
-              iconUrl: 'icons/icon48.png',
-              title: 'FactChecker 오류',
-              message: '콘텐츠 스크립트를 주입할 수 없습니다. 이 페이지는 지원되지 않을 수 있습니다.'
-            });
-          });
       });
   }
 });
@@ -211,7 +133,7 @@ chrome.runtime.onConnect.addListener((port) => {
   
   // 최초 ping 메시지 전송
   try {
-    port.postMessage({ type: 'ping', serverStatus: serverStatus });
+    port.postMessage({ type: 'ping' });
   } catch (error) {
     console.error(`[오류] 초기 ping 메시지 전송 실패: ${error.message}`);
   }
@@ -221,36 +143,18 @@ chrome.runtime.onConnect.addListener((port) => {
  * 서버 연결 상태 확인
  */
 function checkServerConnection() {
-  console.log('[디버그] 서버 연결 확인 중...', serverUrl);
-  
-  // 서버 응답 타임아웃 설정
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5초 타임아웃
-  
-  fetch(serverUrl + '/health', {
+  fetch(serverUrl + '/api/health', {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    signal: controller.signal
+    headers: { 'Content-Type': 'application/json' }
   })
   .then(response => {
-    clearTimeout(timeoutId);
     if (response.ok) {
       return response.json();
     }
-    throw new Error(`서버 응답 오류: ${response.status} ${response.statusText}`);
+    throw new Error('서버 응답 오류');
   })
   .then(data => {
     const isConnected = data && data.status === 'ok';
-    console.log('[디버그] 서버 상태:', isConnected ? '연결됨' : '연결 안됨', data);
-    
-    serverStatus.isConnected = isConnected;
-    serverStatus.lastChecked = new Date().toISOString();
-    
-    // 서비스 정보 저장 (API가 반환하는 경우)
-    if (data.services) {
-      serverStatus.services = data.services;
-    }
-    
     updateBadge(isConnected);
     
     // 이전 상태와 다른 경우에만 상태 변경 알림
@@ -258,37 +162,20 @@ function checkServerConnection() {
       previousServerStatus = isConnected;
       
       // 상태 저장 및 알림
-      chrome.storage.local.set({ 
-        serverConnected: isConnected,
-        lastChecked: serverStatus.lastChecked,
-        serverStatus: isConnected ? 'connected' : 'disconnected',
-        serverServices: serverStatus.services || {}
-      });
+      chrome.storage.local.set({ serverConnected: isConnected });
       
       // 모든 열린 팝업에 상태 변경 알림
       chrome.runtime.sendMessage({
         action: 'serverStatusChanged',
-        isConnected: isConnected,
-        timestamp: serverStatus.lastChecked,
-        services: serverStatus.services
+        isConnected: isConnected
       }).catch(err => {
-        // 팝업이 닫혀 있으면 무시 가능한 오류
+        // 수신자가 없는 경우 오류 무시 (팝업이 닫혀 있는 경우)
         console.debug('팝업이 닫혀 있어 메시지 전송 실패', err);
       });
     }
   })
   .catch(error => {
-    clearTimeout(timeoutId);
     console.error('서버 연결 확인 오류:', error);
-    
-    // AbortController에 의한 타임아웃인 경우
-    const errorMessage = error.name === 'AbortError' ? 
-      '서버 연결 시간 초과' : error.message;
-    
-    serverStatus.isConnected = false;
-    serverStatus.lastChecked = new Date().toISOString();
-    serverStatus.errorMessage = errorMessage;
-    
     updateBadge(false);
     
     // 이전 상태와 다른 경우에만 상태 변경 알림
@@ -296,21 +183,14 @@ function checkServerConnection() {
       previousServerStatus = false;
       
       // 상태 저장 및 알림
-      chrome.storage.local.set({ 
-        serverConnected: false,
-        lastChecked: serverStatus.lastChecked,
-        serverStatus: 'disconnected',
-        errorMessage: errorMessage
-      });
+      chrome.storage.local.set({ serverConnected: false });
       
       // 모든 열린 팝업에 상태 변경 알림
       chrome.runtime.sendMessage({
         action: 'serverStatusChanged',
-        isConnected: false,
-        timestamp: serverStatus.lastChecked,
-        error: errorMessage
+        isConnected: false
       }).catch(err => {
-        // 팝업이 닫혀 있으면 무시 가능한 오류
+        // 수신자가 없는 경우 오류 무시 (팝업이 닫혀 있는 경우)
         console.debug('팝업이 닫혀 있어 메시지 전송 실패', err);
       });
     }
@@ -323,7 +203,7 @@ function checkServerConnection() {
 async function checkServerStatus() {
   try {
     // API 서버 상태 확인
-    const response = await fetch(`${serverUrl}/status`, {
+    const response = await fetch(`${serverUrl}/api/status`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -367,7 +247,7 @@ async function checkServerStatus() {
 
 /**
  * 확장 프로그램 뱃지 업데이트
- * @param {boolean|string} status - 연결 상태 (true/false 또는 'online'/'offline')
+ * @param {string} status - 상태 ('online' 또는 'offline')
  */
 function updateBadge(status) {
   try {
@@ -376,15 +256,10 @@ function updateBadge(status) {
       return;
     }
     
-    // boolean을 문자열로 변환
-    const statusStr = typeof status === 'boolean' ? 
-      (status ? 'online' : 'offline') : status;
-    
-    if (statusStr === 'online' || status === true) {
+    if (status === 'online') {
       try {
         chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' }); // 초록색
         chrome.action.setBadgeText({ text: '' });
-        console.log('[디버그] 뱃지 업데이트: 온라인 상태');
       } catch (iconError) {
         console.warn('[경고] 아이콘 업데이트 실패 (온라인):', iconError);
       }
@@ -392,7 +267,6 @@ function updateBadge(status) {
       try {
         chrome.action.setBadgeBackgroundColor({ color: '#F44336' }); // 빨간색
         chrome.action.setBadgeText({ text: '!' });
-        console.log('[디버그] 뱃지 업데이트: 오프라인 상태');
       } catch (iconError) {
         console.warn('[경고] 아이콘 업데이트 실패 (오프라인):', iconError);
       }
@@ -400,19 +274,15 @@ function updateBadge(status) {
     
     // 아이콘 설정 시도
     try {
-      const iconPath = (statusStr === 'online' || status === true) ? 
-        {
-          16: '/icons/icon16.png',
-          48: '/icons/icon48.png',
-          128: '/icons/icon128.png'
-        } : 
-        {
-          16: '/icons/icon16.png',
-          48: '/icons/icon48.png',
-          128: '/icons/icon128.png'
-        };
+      const iconPath = status === 'online' ? 
+        '/icons/icon48.png' : 
+        '/icons/icon48_offline.png';
       
-      chrome.action.setIcon({ path: iconPath });
+      chrome.action.setIcon({ path: iconPath }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('[경고] 아이콘 변경 실패:', chrome.runtime.lastError.message);
+        }
+      });
     } catch (setIconError) {
       console.warn('[경고] 아이콘 설정 시도 중 오류:', setIconError);
     }
@@ -422,34 +292,51 @@ function updateBadge(status) {
 }
 
 /**
- * 안전하게 탭에 메시지 전송 (Promise 기반)
- * @param {number} tabId - 메시지를 전송할 탭 ID
- * @param {object} message - 전송할 메시지
- * @returns {Promise<any>} - 응답 Promise
+ * 안전하게 탭에 메시지 전송
+ * @param {number} tabId 대상 탭 ID
+ * @param {object} message 전송할 메시지
+ * @returns {Promise} 전송 결과
  */
 function safelySendMessage(tabId, message) {
-  console.log(`[디버그] safelySendMessage 호출됨: 탭ID=${tabId}, 메시지=`, message);
-  
-  // tabId 유효성 확인
-  if (!tabId) {
-    console.error('[오류] safelySendMessage: 유효하지 않은 tabId:', tabId);
-    return Promise.reject(new Error('유효하지 않은 탭 ID'));
-  }
-  
   return new Promise((resolve, reject) => {
     try {
       chrome.tabs.sendMessage(tabId, message, (response) => {
-        // 오류 확인
-        if (chrome.runtime.lastError) {
-          console.error(`[오류] 메시지 전송 실패 (탭ID=${tabId}):`, chrome.runtime.lastError.message);
-          return reject(new Error(chrome.runtime.lastError.message));
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.warn(`[오류] 메시지 전송 오류: ${lastError.message}`, { tabId, message });
+          
+          // 콘텐츠 스크립트가 로드되지 않은 경우, 스크립트 주입 시도
+          if (lastError.message.includes('Receiving end does not exist') ||
+              lastError.message.includes('Could not establish connection')) {
+            
+            injectContentScript(tabId)
+              .then(() => {
+                // 스크립트 주입 후 짧은 대기 시간
+                setTimeout(() => {
+                  // 다시 메시지 전송 시도
+                  chrome.tabs.sendMessage(tabId, message, (retryResponse) => {
+                    if (chrome.runtime.lastError) {
+                      reject(new Error(`재시도 후에도 메시지 전송 실패: ${chrome.runtime.lastError.message}`));
+                    } else {
+                      resolve(retryResponse || { success: true, retried: true });
+                    }
+                  });
+                }, 500);
+              })
+              .catch(error => {
+                reject(new Error(`콘텐츠 스크립트 주입 실패: ${error.message}`));
+              });
+            return;
+          }
+          
+          reject(new Error(lastError.message));
+          return;
         }
         
-        console.log(`[디버그] 메시지 전송 성공 (탭ID=${tabId}):`, response);
-        resolve(response);
+        resolve(response || { success: true });
       });
     } catch (error) {
-      console.error(`[오류] 메시지 전송 중 예외 발생 (탭ID=${tabId}):`, error);
+      console.error('[오류] 메시지 전송 시도 중 예외:', error.message);
       reject(error);
     }
   });
@@ -462,57 +349,32 @@ function safelySendMessage(tabId, message) {
  */
 function injectContentScript(tabId) {
   return new Promise((resolve, reject) => {
-    // 먼저 탭 정보 확인
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError) {
-        console.error('[오류] 탭 정보 확인 실패:', chrome.runtime.lastError.message);
-        reject(new Error(`탭 접근 오류: ${chrome.runtime.lastError.message}`));
-        return;
-      }
-      
-      // URL 검사 (chrome:// URL이나 기타 제한된 페이지는 스킵)
-      if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:')) {
-        console.warn(`[경고] 제한된 URL에는 스크립트를 주입할 수 없습니다: ${tab.url}`);
-        reject(new Error(`제한된 URL: ${tab.url}`));
-        return;
-      }
-      
-      try {
-        chrome.scripting.executeScript({
+    try {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content/content.js']
+      }, (results) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(`스크립트 주입 오류: ${chrome.runtime.lastError.message}`));
+          return;
+        }
+        
+        console.log('[디버그] 콘텐츠 스크립트 주입 완료:', results);
+        
+        // CSS도 주입
+        chrome.scripting.insertCSS({
           target: { tabId: tabId },
-          files: ['content/content.js']
-        }, (results) => {
+          files: ['content/content.css']
+        }, () => {
           if (chrome.runtime.lastError) {
-            const errorMsg = chrome.runtime.lastError.message;
-            console.error('[오류] 스크립트 주입 오류:', errorMsg);
-            
-            // 권한 부족 오류인 경우
-            if (errorMsg.includes('permission') || errorMsg.includes('Cannot access contents')) {
-              reject(new Error(`호스트 권한 오류: ${errorMsg}`));
-            } else {
-              reject(new Error(`스크립트 주입 오류: ${errorMsg}`));
-            }
-            return;
+            console.warn(`CSS 주입 경고: ${chrome.runtime.lastError.message}`);
           }
-          
-          console.log('[디버그] 콘텐츠 스크립트 주입 완료:', results);
-          
-          // CSS도 주입
-          chrome.scripting.insertCSS({
-            target: { tabId: tabId },
-            files: ['content/content.css']
-          }, () => {
-            if (chrome.runtime.lastError) {
-              console.warn('[경고] CSS 주입 경고:', chrome.runtime.lastError.message);
-            }
-            resolve(true);
-          });
+          resolve(true);
         });
-      } catch (error) {
-        console.error('[오류] 스크립트 주입 예외:', error.message);
-        reject(new Error(`스크립트 주입 예외: ${error.message}`));
-      }
-    });
+      });
+    } catch (error) {
+      reject(new Error(`스크립트 주입 예외: ${error.message}`));
+    }
   });
 }
 
@@ -589,349 +451,106 @@ let intervalId = setInterval(checkServerConnection, connectionCheckInterval);
 checkServerConnection();
 
 /**
- * 메시지 핸들러 (runtime.onMessage)
+ * 메시지 처리
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[디버그] 메시지 수신:', message, {
-    sender: sender?.id || '불명',
-    senderId: sender?.tab?.id || '불명',
-    hasCallback: !!sendResponse
-  });
-  
-  // 서버 상태 확인 요청 처리
-  if (message && message.action === 'checkServerStatus') {
-    console.log('[디버그] 서버 상태 확인 요청 처리');
+  if (message.action === 'verifyContent') {
+    let url = message.url || '';
+    const content = message.content || '';
+    const title = message.title || '';
     
-    // 서버 상태를 응답에 포함하여 반환
-    const response = {
-      success: true,
-      serverStatus: serverStatus
-    };
-    
-    console.log('[디버그] 서버 상태 응답:', response);
-    sendResponse(response);
-    return true;
-  }
-  
-  // 콘텐츠 스크립트 주입 요청 처리
-  if (message && message.action === 'injectContentScript') {
-    console.log('[디버그] 콘텐츠 스크립트 주입 요청 처리:', message.tabId);
-    
-    if (!message.tabId) {
-      console.error('[오류] 탭 ID가 없습니다');
-      sendResponse({ success: false, error: '탭 ID가 필요합니다' });
-      return true;
-    }
-    
-    // 비동기 응답을 위해 Promise 사용
-    (async () => {
-      try {
-        console.log('[디버그] injectContentScript 함수 호출 시작:', message.tabId);
-        
-        // 콘텐츠 스크립트 주입
-        const result = await injectContentScript(message.tabId);
-        
-        console.log('[디버그] 콘텐츠 스크립트 주입 결과:', result);
-        
-        // 결과 반환
-        sendResponse({ success: true, result: result });
-      } catch (error) {
-        console.error('[오류] 콘텐츠 스크립트 주입 중 예외:', error);
-        
-        // 오류 응답
-        sendResponse({
-          success: false,
-          error: `콘텐츠 스크립트 주입 오류: ${error.message}`
-        });
-      }
-    })();
-    
-    // 비동기 응답을 위해 true 반환
-    return true;
-  }
-  
-  // 콘텐츠 검증 요청 처리
-  if (message && message.action === 'verifyContent') {
-    console.log('[디버그] 콘텐츠 검증 요청 처리 시작', {
-      url: message.url ? (message.url.substring(0, 50) + '...') : 'none',
-      hasTitle: !!message.title,
-      contentLength: message.content ? message.content.length : 0,
-      forceRefresh: !!message.forceRefresh,
-      timestamp: message.timestamp || new Date().toISOString()
+    console.log('[FactChecker 백그라운드] 검증 요청 데이터 수신:', {
+      url: url ? url.substring(0, 30) + '...' : '(없음)',
+      title: title ? title.substring(0, 30) + '...' : '(없음)', 
+      contentLength: content ? content.length : 0
     });
     
-    // 비동기 응답을 위해 Promise 사용
-    (async () => {
-      try {
-        console.log('[디버그] verifyContent 함수 호출 시작');
-        
-        // 서버에 검증 요청
-        const result = await verifyContent({
-          url: message.url,
-          title: message.title,
-          content: message.content,
-          forceRefresh: message.forceRefresh
-        });
-        
-        console.log('[디버그] 검증 결과 수신:', {
-          success: result.success,
-          hasError: !!result.error,
-          hasData: !!result.data,
-          dataKeys: result.data ? Object.keys(result.data) : [],
-          timestamp: new Date().toISOString()
-        });
-        
-        // 결과 반환
-        sendResponse(result);
-      } catch (error) {
-        console.error('[오류] 콘텐츠 검증 처리 중 예외:', error);
-        
-        // 오류 응답
-        sendResponse({
-          success: false,
-          error: `검증 처리 중 오류가 발생했습니다: ${error.message}`
-        });
-      }
-    })();
-    
-    // 비동기 응답을 위해 true 반환
-    return true;
-  }
-  
-  // 기타 메시지는 처리하지 않음
-  return false;
-});
-
-/**
- * 콘텐츠 검증 함수
- * @param {Object} params - URL, 제목, 콘텐츠 등 검증에 필요한 파라미터
- * @returns {Promise<Object>} - 검증 결과
- */
-async function verifyContent(params) {
-  try {
-    console.log('[디버그] 콘텐츠 검증 시작', {
-      hasUrl: !!params.url,
-      hasTitle: !!params.title,
-      hasContent: !!params.content,
-      contentLength: params.content ? params.content.length : 0,
-      urlPreview: params.url ? params.url.substring(0, 30) + '...' : 'none',
-      forceRefresh: !!params.forceRefresh,
-      timestamp: new Date().toISOString()
-    });
-    
-    // 필수 필드 확인
-    if (!params.url || !params.content) {
-      console.error('[오류] 필수 필드 누락:', { 
-        hasUrl: !!params.url, 
-        hasContent: !!params.content 
-      });
-      return {
-        success: false,
-        error: 'URL과 콘텐츠는 필수 항목입니다.'
-      };
+    // URL이 없는 경우 현재 탭의 URL 사용
+    if (!url && sender && sender.tab) {
+      url = sender.tab.url;
+      console.log('[FactChecker 백그라운드] 빈 URL을 탭 URL로 대체:', url);
     }
     
-    // 서버 연결 확인
-    console.log('[디버그] 서버 상태 확인 시작');
-    const serverHealth = await checkServerHealth();
-    console.log('[디버그] 서버 상태 확인 결과:', serverHealth);
-    
-    if (!serverHealth.isConnected) {
-      console.error('[오류] 서버에 연결할 수 없습니다:', serverHealth.error);
-      return {
-        success: false,
-        error: '서버에 연결할 수 없습니다: ' + (serverHealth.error || '알 수 없는 오류')
-      };
-    }
-    
-    // API 요청 준비
-    const requestData = {
-      url: params.url,
-      title: params.title || '',
-      content: params.content,
-      forceRefresh: !!params.forceRefresh
-    };
-    
-    console.log('[디버그] 서버 요청 데이터 준비:', {
-      url: requestData.url.substring(0, 50) + (requestData.url.length > 50 ? '...' : ''),
-      title: requestData.title ? (requestData.title.substring(0, 30) + (requestData.title.length > 30 ? '...' : '')) : '(없음)',
-      contentLength: requestData.content ? requestData.content.length : 0,
-      contentPreview: requestData.content ? requestData.content.substring(0, 100) + '...' : '(없음)',
-      forceRefresh: requestData.forceRefresh,
-      timestamp: new Date().toISOString()
-    });
-    
-    // API 요청 실행
-    const apiUrl = `${serverUrl}/verify/enhanced`;
-    console.log('[디버그] 서버 API 요청 시작:', apiUrl);
-    
-    // 타임아웃 설정
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
-    
+    // URL 유효성 검사
+    let validUrl = '';
     try {
-      console.log('[디버그] fetch 요청 시작:', {
-        method: 'POST',
-        url: apiUrl,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Client-Version': chrome.runtime.getManifest().version
-        },
-        bodySize: JSON.stringify(requestData).length,
-        timestamp: new Date().toISOString()
-      });
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Client-Version': chrome.runtime.getManifest().version
-        },
-        body: JSON.stringify(requestData),
-        signal: controller.signal
-      });
-      
-      // 타임아웃 클리어
-      clearTimeout(timeoutId);
-      
-      console.log('[디버그] 서버 응답 수신:', {
-        status: response.status,
-        ok: response.ok,
-        statusText: response.statusText,
-        headers: {
-          'content-type': response.headers.get('content-type'),
-          'content-length': response.headers.get('content-length')
-        },
-        timestamp: new Date().toISOString()
-      });
-      
-      // 응답 처리
-      if (!response.ok) {
-        let errorText;
-        try {
-          errorText = await response.text();
-        } catch (e) {
-          errorText = '응답 내용을 읽을 수 없습니다';
-        }
-        
-        console.error(`[오류] 서버 응답 실패 (${response.status}):`, errorText);
-        return {
-          success: false,
-          error: `서버 오류 (${response.status}): ${errorText || response.statusText}`
-        };
+      if (url) {
+        new URL(url); // URL 형식 체크
+        validUrl = url;
+      } else {
+        console.warn('[FactChecker 백그라운드] 유효한 URL이 없습니다.');
       }
-      
-      // 응답 데이터 파싱
-      console.log('[디버그] 서버 응답 파싱 시작');
-      let responseData;
-      try {
-        responseData = await response.json();
-        console.log('[디버그] 서버 응답 파싱 성공');
-      } catch (err) {
-        console.error('[오류] JSON 파싱 오류:', err);
-        responseData = null;
-      }
-      
-      if (!responseData) {
-        return {
-          success: false,
-          error: '서버 응답을 처리할 수 없습니다'
-        };
-      }
-      
-      console.log('[디버그] 서버 응답 데이터:', {
-        success: responseData.success,
-        hasData: !!responseData.data,
-        hasResult: !!responseData.result,
-        resultKeys: responseData.result ? Object.keys(responseData.result) : [],
-        dataKeys: responseData.data ? Object.keys(responseData.data) : []
-      });
-      
-      // API 응답 구조 분석 - 결과가 data 필드에 있을수도, result 필드에 있을수도 있음
-      let resultData = null;
-      
-      if (responseData.data) {
-        console.log('[디버그] 응답에서 data 필드 발견');
-        resultData = responseData.data;
-      } else if (responseData.result) {
-        console.log('[디버그] 응답에서 result 필드 발견');
-        resultData = responseData.result;
-      }
-      
-      // 데이터가 없는 경우
-      if (!resultData) {
-        console.error('[오류] 응답에 유효한 데이터가 없습니다');
-        return {
-          success: responseData.success,
-          data: {},
-          message: responseData.message || '데이터 없음'
-        };
-      }
-      
-      // 성공 응답
-      return {
-        success: true,
-        data: resultData
-      };
-    } catch (fetchError) {
-      // 타임아웃 클리어
-      clearTimeout(timeoutId);
-      
-      // 타임아웃 오류 확인
-      if (fetchError.name === 'AbortError') {
-        console.error('[오류] 서버 요청 타임아웃');
-        return {
-          success: false,
-          error: '서버 요청 시간이 초과되었습니다. 나중에 다시 시도해주세요.'
-        };
-      }
-      
-      console.error('[오류] 서버 요청 실패:', fetchError);
-      return {
-        success: false,
-        error: `서버 요청 오류: ${fetchError.message}`
-      };
+    } catch (e) {
+      console.error('[FactChecker 백그라운드] 잘못된 URL 형식:', url, e);
     }
-  } catch (error) {
-    console.error('[오류] 콘텐츠 검증 처리 중 오류:', error);
-    return {
-      success: false,
-      error: `검증 처리 오류: ${error.message}`
-    };
-  }
-}
-
-/**
- * 서버 상태 확인 (헬스체크)
- * @returns {Promise<{isConnected: boolean, error: string|null}>}
- */
-async function checkServerHealth() {
-  try {
-    const response = await fetch(`${serverUrl}/health`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+    
+    // 콘텐츠 확인
+    if (!content || content.length < 10) {
+      console.error('[FactChecker 백그라운드] 콘텐츠 길이 부족:', content?.length || 0);
+      sendResponse({ 
+        success: false, 
+        error: '검증할 콘텐츠가 부족합니다. 본문 내용이 필요합니다.' 
+      });
+      return false;
+    }
+    
+    // FireCrawl 상태 확인
+    chrome.storage.local.get(['firecrawlStatus'], function(result) {
+      const firecrawlStatus = result.firecrawlStatus || { connected: false };
+      
+      // 향상된 검증 API 엔드포인트
+      const apiUrl = `${serverUrl}/api/verify/enhanced`;
+      console.log('[FactChecker 백그라운드] API 요청 URL:', apiUrl);
+      
+      // 요청 데이터 준비
+      const requestData = {
+        url: validUrl,
+        title: title,
+        content: content,
+        firecrawlAvailable: firecrawlStatus.connected
+      };
+      
+      console.log('[FactChecker 백그라운드] 서버로 전송할 데이터:', {
+        url: requestData.url ? requestData.url.substring(0, 30) + '...' : '(없음)',
+        title: requestData.title ? requestData.title.substring(0, 30) + '...' : '(없음)',
+        contentLength: requestData.content.length,
+        firecrawlAvailable: requestData.firecrawlAvailable
+      });
+      
+      // FactChecker 서버로 데이터 전송
+      fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      })
+      .then(response => {
+        if (response.ok) {
+          return response.json();
+        }
+        throw new Error('서버 응답 오류: ' + response.status);
+      })
+      .then(data => {
+        console.log('[FactChecker 백그라운드] 검증 결과 수신:', {
+          success: data.success,
+          dataExists: !!data.data,
+          trustScore: data.data?.trustScore || '없음'
+        });
+        sendResponse({ success: true, data: data.data });
+      })
+      .catch(error => {
+        console.error('[FactChecker 백그라운드] 콘텐츠 검증 요청 오류:', error);
+        sendResponse({ 
+          success: false, 
+          error: '검증 요청 중 오류가 발생했습니다: ' + error.message 
+        });
+      });
     });
     
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        isConnected: data && data.status === 'ok',
-        error: null
-      };
-    }
-    
-    return {
-      isConnected: false,
-      error: `서버 응답 코드: ${response.status}`
-    };
-  } catch (error) {
-    console.error('[오류] 서버 상태 확인 실패:', error);
-    return {
-      isConnected: false,
-      error: error.message
-    };
+    return true; // 비동기 응답 처리 표시
   }
-}
+  
+  // ... existing code ...
+});
 
 // 서비스 워커 활성 상태 유지를 위한 알람 설정
 chrome.alarms.create('keepAlive', { periodInMinutes: 1 });
@@ -1029,7 +648,7 @@ async function scrapeUrlContent(url) {
     
     // 서버 API를 통한 콘텐츠 추출 시도
     try {
-      const serverApiUrl = `${serverUrl}/extract`;
+      const serverApiUrl = `${serverUrl}/api/extract`;
       const response = await fetch(serverApiUrl, {
         method: 'POST',
         headers: {
@@ -1133,7 +752,7 @@ async function scrapeUrlContent(url) {
  */
 function checkServiceStatus() {
   // 서버 상태 확인
-  fetch(`${serverUrl}/status`, {
+  fetch(`${serverUrl}/api/status`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' }
   })

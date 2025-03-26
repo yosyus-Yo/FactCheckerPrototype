@@ -1,0 +1,76 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+name: "Refactor Rules"
+description: "리팩토링 규칙 정의"
+version: "1.0.0"
+author: "Cursor IDE"
+globs: ["**/*.{js,ts,jsx,tsx,py,java,cpp,cs}"]
+---
+
+# 리팩토링 규칙
+
+## 1. 코드 구조 개선
+
+### 복잡도 감소
+when: complexity_too_high
+then:
+  - invoke: "think_mode"
+  - analyze_structure()
+  - invoke: "sequential_thinking_mode"
+  - plan_simplification()
+  - suggest_improvements()
+
+### 코드 구조화
+when: structure_improvement_needed
+then:
+  - invoke: "sequential_thinking_mode"
+  - analyze_current_structure()
+  - invoke: "think_mode"
+  - design_new_structure()
+  - plan_implementation()
+
+## 2. UI 컴포넌트 리팩토링
+
+### 컴포넌트 최적화
+when: component_optimization_needed
+then:
+  - invoke: "browser_tool.runNextJSAudit"
+  - invoke: "sequential_thinking_mode"
+  - analyze_component_structure()
+  - invoke: "think_mode"
+  - suggest_improvements()
+
+### 성능 개선
+when: performance_improvement_needed
+then:
+  - invoke: "browser_tool.runPerformanceAudit"
+  - invoke: "think_mode"
+  - identify_bottlenecks()
+  - invoke: "sequential_thinking_mode"
+  - plan_optimization()
+
+## 3. 패턴 리팩토링
+
+### 디자인 패턴 적용
+when: pattern_improvement_needed
+then:
+  - invoke: "sequential_thinking_mode"
+  - analyze_current_patterns()
+  - invoke: "brave_search"
+  - research_patterns()
+  - invoke: "think_mode"
+  - suggest_pattern_changes()
+
+### 코드 현대화
+when: modernization_needed
+then:
+  - invoke: "brave_search"
+  - research_modern_practices()
+  - invoke: "sequential_thinking_mode"
+  - plan_updates()
+  - invoke: "think_mode"
+  - design_implementation()

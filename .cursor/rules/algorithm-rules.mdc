@@ -1,0 +1,75 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+name: "Algorithm Rules"
+description: "알고리즘 분석 규칙 정의"
+version: "1.0.0"
+author: "Cursor IDE"
+globs: ["**/*.{js,ts,jsx,tsx,py,java,cpp,cs}"]
+---
+
+# 알고리즘 분석 규칙
+
+## 1. 시간 복잡도 분석
+
+### 기본 분석
+when: complexity_analysis_needed
+then:
+  - invoke: "sequential_thinking_mode"
+  - decompose_algorithm()
+  - invoke: "think_mode"
+  - analyze_complexity()
+  - suggest_optimizations()
+
+### 성능 임계값
+when: performance_threshold_exceeded
+then:
+  - invoke: "think_mode"
+  - identify_bottlenecks()
+  - invoke: "sequential_thinking_mode"
+  - plan_optimization()
+  - invoke: "browser_tool.runPerformanceAudit"
+
+## 2. 알고리즘 패턴 분석
+
+### 패턴 식별
+when: pattern_analysis_needed
+then:
+  - invoke: "sequential_thinking_mode"
+  - identify_patterns()
+  - invoke: "brave_search"
+  - research_solutions()
+  - invoke: "think_mode"
+  - suggest_improvements()
+
+### 최적화 패턴
+when: optimization_needed
+then:
+  - invoke: "think_mode"
+  - analyze_current_pattern()
+  - invoke: "sequential_thinking_mode"
+  - explore_alternatives()
+  - suggest_better_patterns()
+
+## 3. 성능 분석
+
+### 실행 시간 분석
+when: execution_time_critical
+then:
+  - invoke: "browser_tool.runPerformanceAudit"
+  - invoke: "sequential_thinking_mode"
+  - analyze_timing_patterns()
+  - invoke: "think_mode"
+  - optimize_execution()
+
+### 메모리 사용 분석
+when: memory_usage_critical
+then:
+  - invoke: "browser_tool.runDebuggerMode"
+  - invoke: "sequential_thinking_mode"
+  - analyze_memory_patterns()
+  - invoke: "think_mode"
+  - optimize_memory()
