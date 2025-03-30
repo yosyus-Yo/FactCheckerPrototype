@@ -581,8 +581,8 @@ async function getTabMediaStreamId(tabId) {
   }
 }
 
-// 주기적으로 서버 연결 상태 확인 (30초마다)
-const connectionCheckInterval = 30000;
+// 주기적으로 서버 연결 상태 확인 (1초마다)
+const connectionCheckInterval = 1000;
 let intervalId = setInterval(checkServerConnection, connectionCheckInterval);
 
 // 초기 연결 확인
@@ -1763,8 +1763,8 @@ async function broadcastToActiveTabs(message) {
   }
 }
 
-// 서버 연결 주기적 확인 (10초마다)
-setInterval(checkServiceStatus, 10000);
+// 서버 연결 주기적 확인 (1초마다)
+setInterval(checkServiceStatus, 1000);
 
 // 초기 서버 상태 확인
 checkServiceStatus(); 

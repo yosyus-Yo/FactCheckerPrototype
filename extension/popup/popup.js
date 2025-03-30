@@ -395,6 +395,6 @@ document.addEventListener('DOMContentLoaded', function() {
   updateExtensionStatus();
   updateClaimsStats();
   
-  // 5초마다 상태 새로고침
-  setInterval(checkServerStatus, 5000);
+  // 1초마다 상태 새로고침
+  setInterval(checkServerStatus, 1000);
 }); 
