@@ -23,11 +23,14 @@ const genAI = new GoogleGenerativeAI(config.api.googleAi.apiKey);
  */
 async function extractClaimsFromText(text) {
   try {
+    logger.info(`텍스트에서 주장 추출 시작 - 텍스트 길이: ${text.length}자`);
+    
     // 1. 정규식 패턴을 사용한 기본 주장 추출
     const claims = [];
     
     // 따옴표 안의 주장 추출
     let match;
+    let quotedClaimsCount = 0;
     while ((match = claimPatterns.quotedStatement.exec(text)) !== null) {
       if (match[1] && match[1].length > 10) {
         claims.push({
@@ -35,10 +38,13 @@ async function extractClaimsFromText(text) {
           confidence: 0.8,
           source: { type: 'TEXT' }
         });
+        quotedClaimsCount++;
       }
     }
+    logger.info(`따옴표 주장 추출 완료 - ${quotedClaimsCount}개 주장 감지됨`);
     
     // 선언적 주장 추출
+    let declarativeClaimsCount = 0;
     while ((match = claimPatterns.declarative.exec(text)) !== null) {
       if (match[1] && match[1].length > 10) {
         claims.push({
@@ -46,10 +52,13 @@ async function extractClaimsFromText(text) {
           confidence: 0.6,
           source: { type: 'TEXT' }
         });
+        declarativeClaimsCount++;
       }
     }
+    logger.info(`선언적 주장 추출 완료 - ${declarativeClaimsCount}개 주장 감지됨`);
     
     // 수치 관련 주장 추출
+    let numericalClaimsCount = 0;
     while ((match = claimPatterns.numericalClaim.exec(text)) !== null) {
       if (match[0] && match[0].length > 5) {
         claims.push({
@@ -57,15 +66,44 @@ async function extractClaimsFromText(text) {
           confidence: 0.7,
           source: { type: 'TEXT' }
         });
+        numericalClaimsCount++;
       }
+    }
+    logger.info(`수치 주장 추출 완료 - ${numericalClaimsCount}개 주장 감지됨`);
+    
+    // 로그에 추출된 기본 주장들 출력
+    if (claims.length > 0) {
+      logger.info(`패턴 기반 추출된 주장 목록`, {
+        pattern_claims: claims.map(claim => ({
+          text: claim.text.substring(0, 50) + (claim.text.length > 50 ? '...' : ''),
+          confidence: claim.confidence
+        }))
+      });
     }
     
     // 2. Google AI를 사용한 고급 주장 분석 (텍스트가 충분히 긴 경우)
     if (text.length > 100) {
+      logger.info(`AI를 통한 고급 주장 분석 시작`);
       const enhancedClaims = await analyzeClaimsWithAI(text);
-      return [...new Set([...claims, ...enhancedClaims])];
+      logger.info(`AI 주장 분석 완료 - ${enhancedClaims.length}개 주장 감지됨`);
+      
+      // AI로 추출된 주장 로그
+      if (enhancedClaims.length > 0) {
+        logger.info(`AI 기반 추출된 주장 목록`, {
+          ai_claims: enhancedClaims.map(claim => ({
+            text: claim.text.substring(0, 50) + (claim.text.length > 50 ? '...' : ''),
+            confidence: claim.confidence,
+            category: claim.category
+          }))
+        });
+      }
+      
+      const result = [...new Set([...claims, ...enhancedClaims])];
+      logger.info(`최종 주장 추출 완료 - 총 ${result.length}개 (패턴: ${claims.length}, AI: ${enhancedClaims.length})`);
+      return result;
     }
     
+    logger.info(`텍스트 주장 추출 완료 - 총 ${claims.length}개 주장 감지됨`);
     return claims;
   } catch (error) {
     logger.error(`주장 추출 중 오류 발생: ${error.message}`);
@@ -966,6 +1004,349 @@ class ContentRecognitionService {
       return false;
     }
   }
+
+  /**
+   * 요약문에서 핵심 키워드를 추출하고 검증
+   * @param {string} summary 요약 텍스트
+   * @returns {Promise<Object>} 검증 결과
+   */
+  async extractAndVerifyFromSummary(summary) {
+    try {
+      // 핵심 키워드 추출
+      const mainKeyword = await extractMainKeyword(summary);
+      
+      // 키워드로 검증 수행
+      const verificationResult = await verifyWithMainKeyword(mainKeyword, summary);
+      
+      return verificationResult;
+    } catch (error) {
+      logger.error(`[팩트체크] 요약 검증 실패: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        verdict: 'error',
+        trustScore: 0.5,
+        explanation: '검증 과정에서 오류가 발생했습니다.'
+      };
+    }
+  }
+}
+
+/**
+ * 요약문에서 핵심 키워드 하나를 추출
+ * @param {string} summary 요약 텍스트
+ * @returns {Promise<string>} 핵심 키워드
+ */
+async function extractMainKeyword(summary) {
+  try {
+    // 텍스트가 너무 길면 잘라내기
+    const truncatedText = summary.length > 5000 ? summary.substring(0, 5000) + '...' : summary;
+    
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    
+    const prompt = `다음 요약문에서 가장 핵심적인 키워드 하나만 추출해주세요:
+    
+    "${truncatedText}"
+    
+    단일 키워드(1~3개 단어)만 응답해주세요. 다른 설명은 하지 말고 키워드만 답변해주세요.`;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    
+    // 응답에서 키워드 추출 (불필요한 문자 제거)
+    let mainKeyword = response.text().trim()
+      .replace(/^["']|["']$/g, '') // 따옴표 제거
+      .replace(/[,.!?;:]$/g, ''); // 끝에 있는 구두점 제거
+    
+    // 기존 로그
+    logger.info(`[추출] 핵심 키워드: "${mainKeyword}"`);
+    
+    // 새로운 로그 기능 - 요약문에서 핵심 키워드 추출하여 로그로 출력
+    logger.logKeywords(summary, {
+      keywordCount: 5,
+      source: 'summary-analysis'
+    });
+    
+    return mainKeyword;
+  } catch (error) {
+    logger.error(`핵심 키워드 추출 오류: ${error.message}`);
+    // 실패하면 요약문에서 가장 긴 명사를 반환
+    const words = summary.split(/\s+/).filter(word => word.length > 2);
+    return words.sort((a, b) => b.length - a.length)[0] || '뉴스';
+  }
+}
+
+/**
+ * 핵심 키워드를 사용하여 요약문 검증
+ * @param {string} keyword 핵심 키워드
+ * @param {string} summary 요약 텍스트
+ * @returns {Promise<Object>} 검증 결과
+ */
+async function verifyWithMainKeyword(keyword, summary) {
+  try {
+    if (!keyword) {
+      logger.warn('키워드가 없어 검증을 진행할 수 없습니다.');
+      return {
+        success: false,
+        error: '키워드가 없어 검증을 진행할 수 없습니다.',
+        verdict: 'unknown',
+        trustScore: 0.5,
+        explanation: '검증에 필요한 핵심 키워드를 추출할 수 없었습니다.'
+      };
+    }
+    
+    logger.info(`"${keyword}" 키워드로 요약문 검증 시작`, {
+      keyword,
+      summary_length: summary.length
+    });
+    
+    // 검색 API를 통해 관련 정보 수집
+    const searchResults = await findKeywordAndSearchFromClaims([{ text: summary }]);
+    
+    if (!searchResults.success || !searchResults.results) {
+      logger.warn(`키워드 검색 실패: ${searchResults.error || '알 수 없는 오류'}`);
+      return {
+        success: false,
+        error: searchResults.error || '검색 결과를 얻을 수 없습니다.',
+        verdict: 'unknown',
+        trustScore: 0.5,
+        explanation: '관련 정보를 검색하는 과정에서 오류가 발생했습니다.'
+      };
+    }
+    
+    // 검색 결과 수 확인
+    const tavilyResults = searchResults.results.tavily || [];
+    const braveResults = searchResults.results.braveSearch || [];
+    const totalResults = tavilyResults.length + braveResults.length;
+    
+    if (totalResults === 0) {
+      logger.warn(`"${keyword}" 키워드 검색 결과가 없습니다.`);
+      return {
+        success: true,
+        keyword,
+        verdict: 'insufficient',
+        trustScore: 0.5,
+        explanation: '관련 정보를 찾을 수 없어 검증을 완료할 수 없습니다.',
+        sources: []
+      };
+    }
+    
+    // 상위 결과 3개 선택
+    const topResults = [...tavilyResults, ...braveResults]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    
+    logger.info(`검색 결과 분석 중 (상위 ${topResults.length}개)`, {
+      keyword,
+      total_results: totalResults,
+      top_results: topResults.map(r => r.title)
+    });
+    
+    // 결과 반환
+    return {
+      success: true,
+      keyword,
+      verdict: 'unverified',  // 실제 판단은 AI 분석 필요
+      trustScore: 0.6,        // 기본값
+      explanation: `"${keyword}" 키워드에 대한 검색 결과를 바탕으로 요약문 검증이 필요합니다.`,
+      sources: topResults.map(result => ({
+        title: result.title,
+        url: result.url,
+        source: result.source,
+        snippet: result.content
+      }))
+    };
+  } catch (error) {
+    logger.error(`요약문 검증 중 오류 발생: ${error.message}`, { error });
+    return {
+      success: false,
+      error: error.message,
+      verdict: 'error',
+      trustScore: 0.5,
+      explanation: '검증 과정에서 오류가 발생했습니다.'
+    };
+  }
+}
+
+/**
+ * 추출된 주장 목록에서 핵심 키워드를 찾아 검색하고 결과를 로그로 기록
+ * @param {Array} claims 추출된 주장 목록
+ * @returns {Promise<Object>} 검색 결과
+ */
+async function findKeywordAndSearchFromClaims(claims) {
+  try {
+    if (!claims || claims.length === 0) {
+      logger.warn('주장 목록이 비어있어 키워드를 추출할 수 없습니다.');
+      return {
+        success: false,
+        error: '주장 목록이 비어있습니다.'
+      };
+    }
+    
+    logger.info(`총 ${claims.length}개 주장에서 핵심 키워드 추출 시작`);
+    
+    // 1. 주장들을 신뢰도 기준으로 정렬하고 상위 3개만 선택
+    const topClaims = [...claims]
+      .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+      .slice(0, 3);
+    
+    // 2. 선택된 주장들의 텍스트를 하나로 결합
+    const combinedText = topClaims.map(claim => claim.text).join(' ');
+    logger.info(`신뢰도 상위 주장들을 결합한 텍스트 생성 (${combinedText.length}자)`);
+    
+    // 3. 결합된 텍스트에서 핵심 키워드 추출
+    const mainKeyword = await extractMainKeyword(combinedText);
+    logger.info(`주장에서 추출된 핵심 키워드: "${mainKeyword}"`, {
+      source: 'claims-analysis',
+      claims_count: claims.length,
+      keyword: mainKeyword
+    });
+    
+    // 4. 핵심 키워드로 검색 수행
+    logger.info(`"${mainKeyword}" 키워드로 검색 시작`);
+    
+    const searchResults = {
+      tavily: [],
+      braveSearch: []
+    };
+    
+    // 4.1 Tavily 검색
+    try {
+      const { tavily } = require('@tavily/core');
+      const apiKey = process.env.TAVILY_API_KEY || (config.api?.tavily?.apiKey || '');
+      
+      if (apiKey && apiKey !== 'your_tavily_api_key_here') {
+        const tavilyClient = tavily({ apiKey });
+        
+        const searchResponse = await tavilyClient.search({
+          query: mainKeyword,
+          searchDepth: "basic",
+          includeDomains: ["news.com", "reuters.com", "ap.org", "bbc.com", "news.bbc.co.uk"],
+          maxResults: 5
+        });
+        
+        if (searchResponse.results && searchResponse.results.length > 0) {
+          searchResults.tavily = searchResponse.results.map(item => ({
+            title: item.title || '제목 없음',
+            url: item.url,
+            content: item.content || item.snippet || '',
+            score: 0.7,
+            source: 'Tavily'
+          }));
+          
+          logger.info(`Tavily 검색 결과: ${searchResults.tavily.length}개 항목`, {
+            keyword: mainKeyword,
+            source: 'tavily',
+            results_count: searchResults.tavily.length,
+            top_results: searchResults.tavily.slice(0, 3).map(r => ({
+              title: r.title,
+              url: r.url
+            }))
+          });
+        } else {
+          logger.warn(`Tavily 검색 결과 없음 (키워드: ${mainKeyword})`);
+        }
+      } else {
+        logger.warn('Tavily API 키가 설정되지 않음');
+      }
+    } catch (tavilyError) {
+      logger.error(`Tavily 검색 오류: ${tavilyError.message}`);
+    }
+    
+    // 4.2 Brave Search
+    try {
+      // Brave Search API 직접 호출
+      const braveApiKey = process.env.BRAVE_SEARCH_API_KEY || '';
+      
+      if (!braveApiKey || braveApiKey === 'your_brave_search_api_key_here') {
+        logger.warn('Brave Search API 키가 설정되지 않음');
+      } else {
+        logger.info(`Brave Search API로 "${mainKeyword}" 검색 시작`);
+        
+        // Brave Search API 호출
+        const braveResponse = await axios({
+          method: 'GET',
+          url: 'https://api.search.brave.com/res/v1/web/search',
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': braveApiKey
+          },
+          params: {
+            q: mainKeyword,
+            count: 10,
+            safesearch: 'moderate'
+          }
+        });
+        
+        if (braveResponse.data && braveResponse.data.web && braveResponse.data.web.results) {
+          searchResults.braveSearch = braveResponse.data.web.results.map(item => ({
+            title: item.title || '제목 없음',
+            url: item.url,
+            content: item.description || '',
+            score: 0.7, // 기본 점수 사용
+            source: 'Brave Search'
+          }));
+          
+          logger.info(`Brave Search 결과: ${searchResults.braveSearch.length}개 항목`, {
+            keyword: mainKeyword,
+            source: 'brave_search',
+            results_count: searchResults.braveSearch.length,
+            top_results: searchResults.braveSearch.slice(0, 3).map(r => ({
+              title: r.title,
+              url: r.url
+            }))
+          });
+        } else {
+          logger.warn(`Brave Search 결과 없음 (키워드: ${mainKeyword})`);
+        }
+      }
+    } catch (braveError) {
+      logger.error(`Brave Search 오류: ${braveError.message}`);
+    }
+    
+    // 5. 모든 검색 결과 로그
+    const totalResults = searchResults.tavily.length + searchResults.braveSearch.length;
+    logger.info(`"${mainKeyword}" 키워드 검색 완료 - 총 ${totalResults}개 결과 (Tavily: ${searchResults.tavily.length}, Brave: ${searchResults.braveSearch.length})`, {
+      keyword: mainKeyword,
+      total_results: totalResults,
+      tavily_count: searchResults.tavily.length,
+      brave_count: searchResults.braveSearch.length
+    });
+    
+    // 가장 관련성 높은 결과 5개 로그로 출력
+    const allResults = [...searchResults.tavily, ...searchResults.braveSearch]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+      
+    if (allResults.length > 0) {
+      logger.info(`"${mainKeyword}" 키워드 검색 상위 결과`, {
+        keyword: mainKeyword,
+        top_results: allResults.map(result => ({
+          title: result.title,
+          url: result.url,
+          source: result.source,
+          snippet: result.content?.substring(0, 100) + (result.content?.length > 100 ? '...' : '')
+        }))
+      });
+    }
+    
+    return {
+      success: true,
+      keyword: mainKeyword,
+      results: {
+        tavily: searchResults.tavily,
+        braveSearch: searchResults.braveSearch
+      },
+      timestamp: new Date()
+    };
+  } catch (error) {
+    logger.error(`주장에서 키워드 추출 및 검색 중 오류 발생: ${error.message}`);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
 }
 
 module.exports = {
@@ -974,5 +1355,8 @@ module.exports = {
   processVideo,
   searchExistingFactChecks,
   processMediaStream,
-  ContentRecognitionService
+  ContentRecognitionService,
+  extractMainKeyword,
+  verifyWithMainKeyword,
+  findKeywordAndSearchFromClaims
 }; 

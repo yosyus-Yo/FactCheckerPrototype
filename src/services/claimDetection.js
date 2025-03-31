@@ -7,6 +7,7 @@ const natural = require('natural');
 const logger = require('../utils/logger');
 const { claimPatterns } = require('../utils/helpers');
 const config = require('../config');
+const { findKeywordAndSearchFromClaims } = require('./contentRecognition');
 
 // 한국어 NLP 처리를 위한 설정
 const tokenizer = new natural.SentenceTokenizer();
@@ -72,19 +73,37 @@ const claimFeaturePatterns = {
  */
 async function detectClaims(text) {
   try {
+    logger.info(`주장 감지 시작 - 텍스트 길이: ${text.length} 자`);
+    
     // 1. 문장 단위로 분리
     const sentences = tokenizeText(text);
+    logger.info(`텍스트 토큰화 완료 - ${sentences.length}개 문장 추출됨`);
     
     // 2. 각 문장에 대해 주장 식별 및 특성 추출
     const claimCandidates = sentences.map(identifyClaimFeatures);
+    logger.info(`주장 후보 식별 완료 - ${claimCandidates.length}개 문장 분석됨`);
     
     // 3. 필터링 (점수가 임계값 이상인 문장만 주장으로 간주)
     const MIN_CLAIM_SCORE = 0.4;
     let potentialClaims = claimCandidates.filter(item => item.score >= MIN_CLAIM_SCORE);
+    logger.info(`주장 후보 필터링 - ${potentialClaims.length}개 잠재적 주장 감지됨`, {
+      claims_count: potentialClaims.length,
+      min_score: MIN_CLAIM_SCORE
+    });
+    
+    // 로그에 감지된 모든 주장 출력
+    logger.info(`감지된 주장 목록`, {
+      detected_claims: potentialClaims.map(claim => ({
+        text: claim.text.substring(0, 50) + (claim.text.length > 50 ? '...' : ''),
+        score: claim.score,
+        features: claim.features
+      }))
+    });
     
     // 4. AI 모델을 활용한 주장 분석 및 유형 분류 (충분한 후보가 있을 경우)
     if (potentialClaims.length > 0) {
       potentialClaims = await classifyClaimsWithAI(potentialClaims);
+      logger.info(`AI 주장 분류 완료 - ${potentialClaims.length}개 주장 분류됨`);
     }
     
     // 5. 우선순위 산정
@@ -92,6 +111,16 @@ async function detectClaims(text) {
     
     // 6. 결과 정렬 (우선순위 높은 순)
     potentialClaims.sort((a, b) => b.priority - a.priority);
+    
+    // 최종 식별된 주장 로그
+    logger.info(`최종 식별된 주장`, {
+      identified_claims: potentialClaims.map(claim => ({
+        text: claim.text.substring(0, 50) + (claim.text.length > 50 ? '...' : ''),
+        type: claim.type,
+        priority: claim.priority,
+        confidence: claim.confidence
+      }))
+    });
     
     return potentialClaims;
   } catch (error) {
@@ -491,9 +520,56 @@ function summarizeClaimDetection(claims) {
   };
 }
 
+/**
+ * 주장 감지 후 핵심 키워드 추출 및 검색 수행
+ * @param {string} text - 분석할 텍스트
+ * @returns {Promise<Object>} - 주장 감지 및 검색 결과
+ */
+async function detectClaimsAndSearch(text) {
+  try {
+    logger.info(`주장 감지 및 키워드 검색 시작 - 텍스트 길이: ${text.length} 자`);
+    
+    // 1. 주장 감지 수행
+    const detectedClaims = await detectClaims(text);
+    logger.info(`주장 감지 완료 - ${detectedClaims.length}개 주장 감지됨`);
+    
+    if (detectedClaims.length === 0) {
+      logger.warn(`주장이 감지되지 않아 키워드 검색을 수행할 수 없습니다.`);
+      return {
+        claims: [],
+        searchResults: null
+      };
+    }
+    
+    // 2. 감지된 주장에서 키워드 추출 및 검색 수행
+    const claimObjects = detectedClaims.map(claim => ({
+      text: claim.text,
+      confidence: claim.confidence || claim.priority || 0.5,
+      type: claim.type
+    }));
+    
+    logger.info(`감지된 주장에서 키워드 추출 및 검색 시작`);
+    const searchResults = await findKeywordAndSearchFromClaims(claimObjects);
+    
+    // 3. 결과 반환
+    return {
+      claims: detectedClaims,
+      searchResults
+    };
+  } catch (error) {
+    logger.error(`주장 감지 및 키워드 검색 중 오류 발생: ${error.message}`);
+    return {
+      claims: [],
+      searchResults: null,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
   detectClaims,
   CLAIM_TYPES,
   generateAnalysisPromptByType,
-  summarizeClaimDetection
+  summarizeClaimDetection,
+  detectClaimsAndSearch
 }; 

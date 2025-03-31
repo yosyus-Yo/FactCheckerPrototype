@@ -1,6 +1,35 @@
 // .env 파일 로드 (최우선)
 const dotenv = require('dotenv');
-const result = dotenv.config();
+const path = require('path');
+const fs = require('fs');
+
+// .env 파일 탐색 경로
+const envPaths = [
+  '.env',                              // 현재 작업 디렉토리
+  path.resolve(process.cwd(), '.env'), // 절대 경로
+  path.resolve(process.cwd(), '../.env'), // 상위 디렉토리
+  path.resolve(__dirname, '.env'),     // 현재 스크립트 디렉토리
+  path.resolve(__dirname, '../.env')   // 루트 디렉토리 (src의 상위)
+];
+
+// 로드할 .env 파일 찾기
+let envPath = null;
+for (const p of envPaths) {
+  if (fs.existsSync(p)) {
+    envPath = p;
+    break;
+  }
+}
+
+// .env 파일 로드
+let result;
+if (envPath) {
+  console.log(`찾은 .env 파일 경로: ${envPath}`);
+  result = dotenv.config({ path: envPath });
+} else {
+  console.log('.env 파일을 찾을 수 없어 기본 설정으로 진행합니다.');
+  result = dotenv.config();
+}
 
 // 환경 변수 로드 결과 확인
 if (result.error) {
@@ -17,6 +46,17 @@ if (result.error) {
   } else {
     console.error('GOOGLE_AI_API_KEY 환경변수가 설정되지 않았습니다!');
   }
+  
+  // Tavily API 키 확인
+  const tavilyApiKey = process.env.TAVILY_API_KEY;
+  if (tavilyApiKey) {
+    const maskedKey = tavilyApiKey.length > 8 ? 
+      `${tavilyApiKey.substring(0, 4)}...${tavilyApiKey.substring(tavilyApiKey.length - 4)}` : 
+      '(유효하지 않은 키)';
+    console.log(`TAVILY_API_KEY 환경변수 확인: ${maskedKey}, 길이: ${tavilyApiKey.length}`);
+  } else {
+    console.error('TAVILY_API_KEY 환경변수가 설정되지 않았습니다!');
+  }
 }
 
 // Express 및 필요한 모듈 import
@@ -29,6 +69,7 @@ const app = express();
 const logger = require('./utils/logger');
 const config = require('./config');
 const routes = require('./routes');
+const rateLimit = require('express-rate-limit');
 
 // 클러스터 모드 실행 여부 확인
 const enableClusterMode = config.app.enableClusterMode !== false;
@@ -85,9 +126,26 @@ if (enableClusterMode && process.env.NODE_ENV === 'production' && cluster.isMast
     }));
   }
 
+  // 속도 제한 설정 - 공통 API
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1분
+    max: 100, // 1분당 최대 100개 요청
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req, res) => {
+      // 상태 및 헬스 체크 API는 속도 제한에서 제외
+      return req.url.includes('/api/status') || req.url.includes('/api/health');
+    },
+    message: {
+      error: true,
+      message: '너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요.'
+    }
+  });
+
   // 라우트 설정
-  app.use('/api', require('./routes/api'));
-  app.use('/', routes.index);
+  app.use('/', routes.indexRouter);
+  app.use('/api', apiLimiter, routes.apiRouter);
+  app.use('/admin', routes.adminRouter);
 
   // 정적 파일 제공 (캐싱 활성화)
   app.use(express.static('public', {
@@ -231,8 +289,27 @@ function setupInMemoryStorage() {
  * 데이터베이스 초기화
  */
 async function initDatabase() {
-  // 필요한 초기화 작업 수행
-  console.log('데이터베이스 초기화 완료');
+  try {
+    // MongoDB 컬렉션 초기화
+    if (mongoose.connection.readyState === 1) {
+      const collections = await mongoose.connection.db.collections();
+      
+      console.log('데이터베이스 초기화 중...');
+      
+      // 모든 컬렉션을 비웁니다
+      for (const collection of collections) {
+        await collection.deleteMany({});
+        console.log(`${collection.namespace} 컬렉션이 초기화되었습니다.`);
+      }
+      
+      console.log('모든 MongoDB 컬렉션이 초기화되었습니다.');
+    } else {
+      console.log('MongoDB에 연결되지 않아 초기화할 수 없습니다.');
+    }
+  } catch (error) {
+    console.error('데이터베이스 초기화 중 오류 발생:', error);
+    logger.error(`데이터베이스 초기화 중 오류 발생: ${error.message}`);
+  }
 }
 
 /**
@@ -249,6 +326,11 @@ async function connectToRedis() {
     });
     
     await client.connect();
+    
+    // Redis 캐시 초기화 (모든 키 삭제)
+    console.log('Redis 캐시 초기화 중...');
+    await client.flushAll();
+    console.log('Redis 캐시가 성공적으로 초기화되었습니다.');
     
     // 전역 Redis 클라이언트 설정
     global.redisClient = client;

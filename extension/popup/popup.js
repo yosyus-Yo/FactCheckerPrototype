@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const captureButton = document.getElementById('capture-button');
   const stopCaptureButton = document.getElementById('stop-capture-button');
   const verifyButton = document.getElementById('verify-button');
+  const summarizeVerifyButton = document.getElementById('summarize-verify-button');
+  const keywordSearchButton = document.getElementById('keyword-search-button');
   const statusElement = document.getElementById('status');
   const serverStatusElement = document.getElementById('server-status');
   const claimsCountElement = document.getElementById('claims-count');
@@ -243,6 +245,79 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   /**
+   * 요약 및 팩트체크 버튼 클릭 이벤트
+   */
+  function onSummarizeVerifyClick() {
+    if (!summarizeVerifyButton) return;
+    
+    console.log('요약 및 검증 버튼 클릭됨', {
+      timestamp: new Date().toISOString(),
+      context: 'popup.js'
+    });
+    
+    // 분석 중 상태로 변경
+    summarizeVerifyButton.textContent = '분석 중...';
+    summarizeVerifyButton.disabled = true;
+    
+    // 현재 활성 탭 가져오기
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      if (tabs.length === 0) {
+        console.error('활성 탭을 찾을 수 없습니다.');
+        summarizeVerifyButton.textContent = '요약 및 검증';
+        summarizeVerifyButton.disabled = false;
+        return;
+      }
+      
+      const tabId = tabs[0].id;
+      
+      // 서버 상태 확인
+      chrome.runtime.sendMessage({ action: 'getServerStatus' }, function(response) {
+        // 서버가 연결되지 않은 경우
+        if (!response || !response.status || !response.status.isConnected) {
+          console.error('서버에 연결할 수 없습니다.');
+          alert('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.');
+          summarizeVerifyButton.textContent = '요약 및 검증';
+          summarizeVerifyButton.disabled = false;
+          return;
+        }
+        
+        // 콘텐츠 스크립트에 메시지 전송
+        chrome.tabs.sendMessage(tabId, {
+          action: 'summarizeAndVerify'
+        }, function(response) {
+          if (chrome.runtime.lastError) {
+            console.error('요약 및 검증 요청 오류:', chrome.runtime.lastError);
+            
+            // 콘텐츠 스크립트 주입 시도
+            chrome.runtime.sendMessage({
+              action: 'injectContentScript',
+              tabId: tabId
+            }, function(injectResponse) {
+              if (injectResponse && injectResponse.success) {
+                // 주입 성공 후 다시 시도
+                setTimeout(function() {
+                  chrome.tabs.sendMessage(tabId, {
+                    action: 'summarizeAndVerify'
+                  });
+                }, 500);
+              } else {
+                alert('페이지에서 콘텐츠를 분석할 수 없습니다.');
+              }
+              
+              summarizeVerifyButton.textContent = '요약 및 검증';
+              summarizeVerifyButton.disabled = false;
+            });
+            return;
+          }
+          
+          // 요청 성공
+          window.close();
+        });
+      });
+    });
+  }
+  
+  /**
    * 버튼 상태 업데이트 함수
    * @param {string} state - 버튼 상태 ('default', 'analyzing', 'error')
    */
@@ -359,6 +434,110 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
   
+  /**
+   * 키워드 추출 및 검색 버튼 클릭 이벤트
+   */
+  function onKeywordSearchClick() {
+    if (!keywordSearchButton) return;
+    
+    console.log('키워드 추출 및 검색 버튼 클릭됨', {
+      timestamp: new Date().toISOString(),
+      context: 'popup.js'
+    });
+    
+    // 분석 중 상태로 변경
+    updateButton('analyzing');
+    
+    // 현재 활성 탭 가져오기
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      if (tabs.length === 0) {
+        console.error('활성 탭을 찾을 수 없습니다.');
+        updateButton('error');
+        return;
+      }
+      
+      const tabId = tabs[0].id;
+      const tabUrl = tabs[0].url;
+      
+      console.log('활성 탭 정보:', {
+        tabId: tabId,
+        tabUrl: tabUrl,
+        timestamp: new Date().toISOString()
+      });
+      
+      // 서버 상태 확인
+      chrome.runtime.sendMessage({ action: 'checkServerStatus' }, function(statusResponse) {
+        console.log('서버 상태 응답:', statusResponse, {
+          timestamp: new Date().toISOString()
+        });
+        
+        // 서버가 연결되지 않은 경우
+        if (!statusResponse || !statusResponse.serverStatus || !statusResponse.serverStatus.isConnected) {
+          console.error('서버에 연결할 수 없습니다.');
+          alert('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.');
+          updateButton('error');
+          return;
+        }
+        
+        // 콘텐츠 스크립트에 메시지 전송
+        console.log('콘텐츠 스크립트에 extractKeywordAndSearch 메시지 전송:', {
+          tabId: tabId,
+          action: 'extractKeywordAndSearch',
+          timestamp: new Date().toISOString()
+        });
+        
+        chrome.tabs.sendMessage(tabId, {
+          action: 'extractKeywordAndSearch'
+        }, function(response) {
+          if (chrome.runtime.lastError) {
+            console.error('키워드 추출 요청 오류:', chrome.runtime.lastError, {
+              errorMessage: chrome.runtime.lastError.message,
+              timestamp: new Date().toISOString()
+            });
+            
+            // 콘텐츠 스크립트 주입 시도
+            console.log('콘텐츠 스크립트 주입 시도:', {
+              tabId: tabId,
+              timestamp: new Date().toISOString()
+            });
+            
+            // 백그라운드 스크립트에 콘텐츠 스크립트 주입 요청
+            chrome.runtime.sendMessage({
+              action: 'injectContentScript',
+              tabId: tabId
+            }, function(injectResponse) {
+              console.log('콘텐츠 스크립트 주입 결과:', injectResponse, {
+                timestamp: new Date().toISOString()
+              });
+              
+              // 주입 성공 후 0.5초 대기 후 다시 시도
+              if (injectResponse && injectResponse.success) {
+                setTimeout(function() {
+                  chrome.tabs.sendMessage(tabId, {
+                    action: 'extractKeywordAndSearch'
+                  }, function(retryResponse) {
+                    if (chrome.runtime.lastError) {
+                      console.error('주입 후 키워드 추출 요청 오류:', chrome.runtime.lastError);
+                      updateButton('error');
+                    } else {
+                      console.log('주입 후 키워드 추출 응답:', retryResponse);
+                      updateButton('success');
+                    }
+                  });
+                }, 500);
+              } else {
+                updateButton('error');
+              }
+            });
+          } else {
+            console.log('키워드 추출 응답:', response);
+            updateButton('success');
+          }
+        });
+      });
+    });
+  }
+  
   // 서버 상태 변경 리스너
   chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     if (message.action === 'serverStatusChanged') {
@@ -370,25 +549,13 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   // 이벤트 리스너 등록
-  if (activateButton) {
-    activateButton.addEventListener('click', onActivateClick);
-  }
-  
-  if (deactivateButton) {
-    deactivateButton.addEventListener('click', onDeactivateClick);
-  }
-  
-  if (captureButton) {
-    captureButton.addEventListener('click', onCaptureClick);
-  }
-  
-  if (stopCaptureButton) {
-    stopCaptureButton.addEventListener('click', onStopCaptureClick);
-  }
-  
-  if (verifyButton) {
-    verifyButton.addEventListener('click', onVerifyClick);
-  }
+  if (activateButton) activateButton.addEventListener('click', onActivateClick);
+  if (deactivateButton) deactivateButton.addEventListener('click', onDeactivateClick);
+  if (captureButton) captureButton.addEventListener('click', onCaptureClick);
+  if (stopCaptureButton) stopCaptureButton.addEventListener('click', onStopCaptureClick);
+  if (verifyButton) verifyButton.addEventListener('click', onVerifyClick);
+  if (summarizeVerifyButton) summarizeVerifyButton.addEventListener('click', onSummarizeVerifyClick);
+  if (keywordSearchButton) keywordSearchButton.addEventListener('click', onKeywordSearchClick);
   
   // 페이지 로드 시 상태 업데이트
   checkServerStatus();

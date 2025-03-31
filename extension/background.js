@@ -698,9 +698,104 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  // 주장에서 키워드를 추출하고 검색하는 요청 처리
+  if (message && message.action === 'extractKeywordAndSearch') {
+    console.log('[디버그] 주장에서 키워드 추출 및 검색 요청 처리:', message.claims);
+    
+    if (!message.claims) {
+      console.error('[오류] 주장이 없습니다');
+      sendResponse({ success: false, error: '주장이 필요합니다' });
+      return true;
+    }
+    
+    // 비동기 응답을 위해 Promise 사용
+    (async () => {
+      try {
+        console.log('[디버그] extractKeywordAndSearch 함수 호출 시작');
+        
+        // 주장에서 키워드를 추출하고 검색
+        const result = await extractKeywordAndSearch(message.claims);
+        
+        console.log('[디버그] 주장에서 키워드 추출 및 검색 결과:', result);
+        
+        // 결과 반환
+        sendResponse(result);
+      } catch (error) {
+        console.error('[오류] 주장에서 키워드 추출 및 검색 중 오류:', error);
+        
+        // 오류 응답
+        sendResponse({
+          success: false,
+          error: `주장에서 키워드 추출 및 검색 중 오류가 발생했습니다: ${error.message}`
+        });
+      }
+    })();
+    
+    // 비동기 응답을 위해 true 반환
+    return true;
+  }
+  
   // 기타 메시지는 처리하지 않음
   return false;
 });
+
+/**
+ * 주장에서 키워드를 추출하고 검색하는 함수
+ * @param {string|Array} claims - 검색할 주장
+ * @returns {Promise<Object>} - 검색 결과
+ */
+async function extractKeywordAndSearch(claims) {
+  try {
+    console.log('주장에서 키워드 추출 및 검색 시작...');
+    const serverUrl = localStorage.getItem('serverUrl') || BASE_SERVER_URL;
+    
+    const response = await fetch(`${serverUrl}/api/keyword-search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ claims })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `서버 오류: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.message || '키워드 검색 실패');
+    }
+    
+    console.log(`핵심 키워드 추출 결과: "${data.keyword}"`);
+    
+    // Tavily 검색 결과 로깅
+    if (data.tavilyResults && data.tavilyResults.results) {
+      console.log(`Tavily 검색 결과 (${data.tavilyResults.results.length}개):`);
+      data.tavilyResults.results.forEach((result, index) => {
+        console.log(`  ${index + 1}. ${result.title}`);
+        console.log(`     URL: ${result.url}`);
+        console.log(`     관련성: ${result.score || 'N/A'}`);
+      });
+    }
+    
+    // Brave 검색 결과 로깅
+    if (data.braveResults && data.braveResults.results) {
+      console.log(`Brave 검색 결과 (${data.braveResults.results.length}개):`);
+      data.braveResults.results.forEach((result, index) => {
+        console.log(`  ${index + 1}. ${result.title || result.name || '제목 없음'}`);
+        console.log(`     URL: ${result.url}`);
+        console.log(`     설명: ${result.content || result.description || '설명 없음'}`);
+      });
+    }
+    
+    return data;
+  } catch (error) {
+    console.error(`키워드 추출 및 검색 중 오류: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
 
 /**
  * 콘텐츠 검증 함수

@@ -39,6 +39,7 @@
     "mediasoup": "^3.13.17",
     "mongoose": "^7.2.0",
     "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.2",
     "natural": "^6.7.0",
     "node-webrtc": "^0.0.0",
     "playwright": "^1.51.1",

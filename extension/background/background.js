@@ -102,32 +102,69 @@ async function checkServerConnection() {
  */
 async function checkServerStatus() {
   try {
+    // 마지막 확인 시간으로부터 10초 이내라면 캐시된 결과 사용
+    const now = new Date();
+    if (serverStatus.lastChecked && 
+        (now - new Date(serverStatus.lastChecked)) < 10000 && 
+        serverStatus.isConnected) {
+      console.log('서버 상태 캐시 사용:', serverStatus.lastChecked);
+      // 활성 탭의 popup에 캐시된 상태 전달
+      updateActiveTabStatus();
+      // 요청 스킵, 다음 주기 대기
+      setTimeout(checkServerStatus, 60000); // 60초마다 체크
+      return;
+    }
+    
     // API 서버 상태 확인
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5초 타임아웃
+    
     const response = await fetch(`${serverUrl}/api/status`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache' 
+      },
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     if (response.ok) {
       const data = await response.json();
       serverStatus = {
         isConnected: true,
-        lastChecked: new Date().toISOString(),
+        lastChecked: now.toISOString(),
         url: serverUrl,
         version: data.version || 'unknown',
         services: data.services || {}
       };
     } else {
       serverStatus.isConnected = false;
+      serverStatus.lastChecked = now.toISOString();
     }
   } catch (error) {
     console.error('서버 상태 확인 오류:', error);
     serverStatus.isConnected = false;
+    serverStatus.lastChecked = new Date().toISOString();
+    serverStatus.error = error.message;
   } finally {
     // 결과 저장 및 알림
     chrome.storage.local.set({ serverStatus });
     
-    // 활성 탭의 popup에 상태 전달
+    // 활성 탭에 상태 전달
+    updateActiveTabStatus();
+    
+    // 60초 후 다시 확인 (30초에서 60초로 증가)
+    setTimeout(checkServerStatus, 60000);
+  }
+}
+
+/**
+ * 활성 탭에 서버 상태 업데이트 전송
+ */
+async function updateActiveTabStatus() {
+  try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs.length > 0) {
       try {
@@ -139,9 +176,8 @@ async function checkServerStatus() {
         // 팝업이 닫혀 있는 경우 오류 무시
       }
     }
-    
-    // 30초 후 다시 확인
-    setTimeout(checkServerStatus, 30000);
+  } catch (error) {
+    console.error('상태 업데이트 전송 오류:', error);
   }
 }
 
@@ -308,6 +344,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             response = { success: false, error: error.message };
           }
         }
+      }
+      else if (message.action === 'summarizeAndVerify') {
+        response = await summarizeAndVerifyContent(message.data);
       }
       
       // 응답 전송 (요청이 아직 처리 중인 경우에만)
@@ -629,46 +668,91 @@ function extractKeywords(text) {
   return [...new Set(words)];
 }
 
-// 메시지 수신 처리에 주장 검증 요청 처리 추가
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // 기존 처리 코드...
+// 요약 및 검증 함수 추가 (다른 함수들 사이에 추가)
+/**
+ * 뉴스 콘텐츠를 요약하고 핵심 키워드를 추출하여 팩트체크 수행
+ * @param {Object} newsData - 뉴스 콘텐츠 데이터
+ * @returns {Promise<Object>} - 요약 및 검증 결과
+ */
+async function summarizeAndVerifyContent(newsData) {
+  console.log('요약 및 검증 시작:', newsData?.title);
   
-  // 주장 검증 요청 처리
-  if (message.action === 'verifyNewsRequest') {
-    const processRequest = async () => {
-      try {
-        const content = message.content;
-        const title = message.title || '';
-        
-        // 타이틀과 내용으로 주장 추출
-        const claimToVerify = title || content.substring(0, 200);
-        
-        // 웹 검색으로 주장 검증
-        const verificationResult = await performWebSearch(claimToVerify);
-        
-        sendResponse({
-          success: true,
-          data: {
-            claim: claimToVerify,
-            result: verificationResult,
-            timestamp: new Date().toISOString()
-          }
-        });
-      } catch (error) {
-        console.error('주장 검증 처리 오류:', error);
-        sendResponse({
-          success: false,
-          error: error.message || '주장 검증 처리 중 오류가 발생했습니다.'
-        });
-      }
-    };
+  try {
+    if (!newsData || !newsData.content || newsData.content.length < 50) {
+      return {
+        success: false,
+        error: '검증할 충분한 콘텐츠가 없습니다'
+      };
+    }
     
-    processRequest();
-    return true; // 비동기 응답 허용
+    // 서버 연결 확인
+    if (!serverStatus.isConnected) {
+      return {
+        success: false,
+        error: '서버에 연결할 수 없습니다'
+      };
+    }
+    
+    // API에 요약 생성 요청
+    console.log('요약 생성 요청...');
+    const summaryResponse = await fetch(`${serverUrl}/api/content/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: newsData.title,
+        content: newsData.content,
+        url: newsData.url
+      })
+    });
+    
+    if (!summaryResponse.ok) {
+      throw new Error(`요약 생성 실패: ${summaryResponse.status} ${summaryResponse.statusText}`);
+    }
+    
+    const summaryData = await summaryResponse.json();
+    
+    if (!summaryData.success || !summaryData.summary) {
+      throw new Error('요약 생성 실패: 서버 응답 오류');
+    }
+    
+    console.log('요약 생성 완료:', summaryData.summary);
+    
+    // 요약문으로 핵심 키워드 추출 및 검증 API 요청
+    console.log('요약 기반 팩트체크 요청...');
+    const verifyResponse = await fetch(`${serverUrl}/api/verify/summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary: summaryData.summary,
+        url: newsData.url
+      })
+    });
+    
+    if (!verifyResponse.ok) {
+      throw new Error(`팩트체크 실패: ${verifyResponse.status} ${verifyResponse.statusText}`);
+    }
+    
+    const verificationResult = await verifyResponse.json();
+    
+    // 최종 결과 조합
+    return {
+      success: true,
+      summary: summaryData.summary,
+      keyword: verificationResult.keyword,
+      verdict: verificationResult.verdict,
+      trustScore: verificationResult.trustScore,
+      explanation: verificationResult.explanation,
+      sources: verificationResult.sources || [],
+      url: newsData.url
+    };
+  } catch (error) {
+    console.error('요약 및 검증 오류:', error);
+    return {
+      success: false,
+      error: `요약 및 검증 실패: ${error.message}`
+    };
   }
-  
-  // 다른 처리 코드...
-});
+}
 
 // 뉴스 콘텐츠 검증 요청
 async function verifyNewsContent(newsData, sendResponse) {

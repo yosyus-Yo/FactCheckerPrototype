@@ -3,14 +3,24 @@ const router = express.Router();
 const logger = require('../utils/logger');
 const { formatApiError, formatTimeInterval } = require('../utils/helpers');
 const services = require('../services');
-const config = require('../config');
 const { factChecker, factCheckerIntegration, performanceMonitor } = require('../services');
+const config = require('../config');
 const mongoose = require('mongoose');
 const { chromium } = require('playwright');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const url = require('url');
+const crypto = require('crypto');
+const { performance } = require('perf_hooks');
+const { checkAuth } = require('../utils/authMiddleware');
 const { Verification, isMongoConnected } = require('../models/verification');
 const contentExtractor = require('../utils/contentExtractor');
+const { ContentRecognitionService } = require('../services/contentRecognition');
+const { detectClaims, detectClaimsAndSearch } = require('../services/claimDetection');
 
 // 진행 중인 요청을 추적하는 Map 객체 (임시 메모리 저장)
 const processingRequests = new Map();
@@ -799,6 +809,12 @@ router.post('/frames/analyze', async (req, res) => {
 router.get('/status', (req, res) => {
   const dbStatus = isMongoConnected() ? 'connected' : 'disconnected';
   
+  // 캐시 헤더 설정 (최대 15초)
+  res.set({
+    'Cache-Control': 'public, max-age=15',
+    'Expires': new Date(Date.now() + 15000).toUTCString()
+  });
+  
   res.json({
     status: 'online',
     time: new Date().toISOString(),
@@ -1577,6 +1593,290 @@ router.get('/sse', (req, res) => {
     console.log(`[SSE] 클라이언트 연결 종료: ${clientId}`);
     factChecker.removeSSEClient(clientId);
   });
+});
+
+/**
+ * @swagger
+ * /api/verify/summary:
+ *   post:
+ *     summary: 요약문에서 핵심 키워드를 추출하고 팩트체크 수행
+ *     description: 요약문에서 핵심 키워드를 추출하고 해당 키워드에 대한 팩트체크를 수행합니다.
+ *     tags: [FactCheck]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - summary
+ *             properties:
+ *               summary:
+ *                 type: string
+ *                 description: 검증할 요약문
+ *               url:
+ *                 type: string
+ *                 description: 요약문의 출처 URL (선택사항)
+ *     responses:
+ *       200:
+ *         description: 팩트체크 결과
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 keyword:
+ *                   type: string
+ *                 verdict:
+ *                   type: string
+ *                   enum: [true, mostly_true, partially_true, unverified, mostly_false, false, error]
+ *                 trustScore:
+ *                   type: number
+ *                   format: float
+ *                 explanation:
+ *                   type: string
+ *                 sources:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       400:
+ *         description: 잘못된 요청
+ *       500:
+ *         description: 서버 오류
+ */
+router.post('/verify/summary', async (req, res) => {
+  try {
+    const { summary, url } = req.body;
+    
+    // 요약문 검증
+    if (!summary || typeof summary !== 'string' || summary.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: '유효한 요약문을 제공해주세요 (최소 10자 이상)'
+      });
+    }
+    
+    // 로깅
+    logger.info(`[API] 요약문 팩트체크 요청 - 길이: ${summary.length}자`, { service: 'factchecker' });
+    
+    // ContentRecognitionService 인스턴스 생성
+    const contentService = new ContentRecognitionService();
+    
+    // 요약에서 핵심 키워드 추출 및 검증
+    const result = await contentService.extractAndVerifyFromSummary(summary);
+    
+    // 결과에 URL 정보 추가 (제공된 경우)
+    if (url) {
+      result.sourceUrl = url;
+    }
+    
+    // API 응답 반환
+    return res.json(result);
+  } catch (error) {
+    logger.error(`[API] 요약문 팩트체크 오류: ${error.message}`, { service: 'factchecker' });
+    
+    return res.status(500).json({
+      success: false,
+      error: '요약문 검증 중 오류가 발생했습니다',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/content/summarize:
+ *   post:
+ *     summary: 콘텐츠 요약 생성
+ *     description: 제목과 내용을 바탕으로 요약문을 생성합니다.
+ *     tags: [Content]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: 콘텐츠 제목
+ *               content:
+ *                 type: string
+ *                 description: 요약할 콘텐츠 본문
+ *               url:
+ *                 type: string
+ *                 description: 콘텐츠 출처 URL
+ *     responses:
+ *       200:
+ *         description: 요약 결과
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 summary:
+ *                   type: string
+ *                 topics:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       400:
+ *         description: 잘못된 요청
+ *       500:
+ *         description: 서버 오류
+ */
+router.post('/content/summarize', async (req, res) => {
+  try {
+    const { content, title, url } = req.body;
+    
+    // 콘텐츠 검증
+    if (!content || typeof content !== 'string' || content.length < 50) {
+      return res.status(400).json({
+        success: false,
+        error: '유효한 콘텐츠를 제공해주세요 (최소 50자 이상)'
+      });
+    }
+    
+    // 로깅
+    logger.info(`[API] 콘텐츠 요약 요청 - 길이: ${content.length}자, 제목 여부: ${!!title}`, { service: 'factchecker' });
+    
+    // ContentRecognitionService 인스턴스 생성
+    const contentService = new ContentRecognitionService();
+    
+    // 요약 생성
+    const summary = await contentService.generateSummary(content);
+    
+    // 주제어 추출 (선택적)
+    const topics = await contentService.extractTopics(content);
+    
+    // API 응답 반환
+    return res.json({
+      success: true,
+      summary,
+      topics,
+      url
+    });
+  } catch (error) {
+    logger.error(`[API] 콘텐츠 요약 오류: ${error.message}`, { service: 'factchecker' });
+    
+    return res.status(500).json({
+      success: false,
+      error: '콘텐츠 요약 중 오류가 발생했습니다',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * 주장 감지 및 키워드 검색 API
+ */
+router.post('/content/detect-and-search', async (req, res) => {
+  try {
+    const { text } = req.body;
+    
+    if (!text || text.length < 50) {
+      return res.status(400).json({
+        success: false,
+        error: '텍스트가 너무 짧습니다. 최소 50자 이상의 텍스트를 입력해주세요.'
+      });
+    }
+    
+    logger.info(`주장 감지 및 키워드 검색 요청 - 텍스트 길이: ${text.length}자`);
+    
+    // 주장 감지 및 키워드 검색 수행
+    const result = await detectClaimsAndSearch(text);
+    
+    if (result.error) {
+      logger.error(`주장 감지 및 키워드 검색 실패: ${result.error}`);
+      return res.status(500).json({
+        success: false,
+        error: `주장 감지 및 키워드 검색 중 오류가 발생했습니다: ${result.error}`
+      });
+    }
+    
+    // 검색 결과가 있는 경우 상세 정보 로그
+    if (result.searchResults && result.searchResults.success) {
+      logger.info(`주장 감지 및 키워드 검색 완료`, {
+        claims_count: result.claims.length,
+        keyword: result.searchResults.keyword,
+        tavily_count: result.searchResults.results?.tavily?.length || 0,
+        brave_count: result.searchResults.results?.braveSearch?.length || 0,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    return res.json({
+      success: true,
+      claims: result.claims,
+      searchResults: result.searchResults
+    });
+  } catch (error) {
+    logger.error(`주장 감지 및 키워드 검색 API 오류: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: `서버 오류: ${error.message}`
+    });
+  }
+});
+
+/**
+ * @route   POST /api/keyword-search
+ * @desc    주장에서 키워드 추출 및 검색 요청
+ * @access  Public
+ */
+router.post('/keyword-search', async (req, res) => {
+  const { claims } = req.body;
+  const context = createLoggingContext(req);
+  
+  if (!claims) {
+    logError(context, new Error('주장이 제공되지 않았습니다'), { body: req.body });
+    return res.status(400).json({
+      success: false,
+      message: '주장을 제공해야 합니다.'
+    });
+  }
+  
+  try {
+    logContent(context, 'CLAIMS', claims);
+    
+    // factChecker 서비스의 함수 호출
+    const result = await services.factChecker.findKeywordAndSearchFromClaims(claims);
+    
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.error || '키워드 검색 실패'
+      });
+    }
+    
+    // 검색 결과 로깅
+    logVerificationResult(context, {
+      type: 'KEYWORD_SEARCH',
+      keyword: result.keyword,
+      tavilyResultsCount: result.tavilyResults?.results?.length || 0,
+      braveResultsCount: result.braveResults?.results?.length || 0
+    });
+    
+    return res.json({
+      success: true,
+      keyword: result.keyword,
+      tavilyResults: result.tavilyResults,
+      braveResults: result.braveResults
+    });
+  } catch (error) {
+    logError(context, error, { claims });
+    
+    return res.status(500).json({
+      success: false,
+      message: `키워드 추출 및 검색 중 오류: ${error.message}`
+    });
+  }
 });
 
 module.exports = router; 

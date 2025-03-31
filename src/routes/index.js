@@ -90,7 +90,26 @@ router.get('/status', (req, res) => {
   res.json({ status: 'running' });
 });
 
+// 기존 방식 (이전 코드와 호환성 유지를 위해)
 module.exports = {
   index: router,
   api: apiRoutes
+};
+
+// 새로운 라우터 내보내기 방식
+const apiRouter = require('./api');
+// 기존 router를 indexRouter로 사용
+const indexRouter = router;
+// 임시 어드민 라우터 생성
+const adminRouter = express.Router();
+
+// 어드민 라우터 기본 경로 설정
+adminRouter.get('/', (req, res) => {
+  res.json({ message: '관리자 페이지는 준비 중입니다.' });
+});
+
+module.exports = {
+  apiRouter,
+  indexRouter,
+  adminRouter
 }; 

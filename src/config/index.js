@@ -62,6 +62,19 @@ const api = {
     enabled: process.env.TAVILY_ENABLED === 'true',
     searchDepth: process.env.TAVILY_SEARCH_DEPTH || 'advanced',
     maxResults: parseInt(process.env.TAVILY_MAX_RESULTS, 10) || 5
+  },
+  braveSearch: {
+    apiKey: process.env.BRAVE_SEARCH_API_KEY || '',
+    enabled: process.env.BRAVE_SEARCH_ENABLED !== 'false',
+    apiUrl: 'https://api.search.brave.com/res/v1/web/search',
+    maxResults: parseInt(process.env.BRAVE_SEARCH_MAX_RESULTS, 10) || 10
+  },
+  googleSearch: {
+    apiKey: process.env.GOOGLE_SEARCH_API_KEY || '',
+    engineId: process.env.GOOGLE_SEARCH_ENGINE_ID || '',
+    enabled: process.env.GOOGLE_SEARCH_ENABLED !== 'false',
+    apiUrl: 'https://www.googleapis.com/customsearch/v1',
+    maxResults: parseInt(process.env.GOOGLE_SEARCH_MAX_RESULTS, 10) || 10
   }
 };
 

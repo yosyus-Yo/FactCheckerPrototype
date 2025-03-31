@@ -18,7 +18,7 @@
       FactCheckOverlay.instance = this;
 
       this.container = null;
-    this.isActive = false;
+      this.isActive = false;
       this.setupOverlay();
       this.setupMessageListener();
       
@@ -37,8 +37,17 @@
       this.container = document.createElement('div');
       this.container.id = 'fact-check-overlay';
       this.container.style.display = 'none';
-      this.container.style.padding = '20px';
+      this.container.style.position = 'fixed';
+      this.container.style.top = '50px';
+      this.container.style.right = '20px';
+      this.container.style.width = '450px';
+      this.container.style.maxWidth = '90vw';
       this.container.style.maxHeight = '80vh';
+      this.container.style.overflow = 'auto';
+      this.container.style.backgroundColor = '#ffffff';
+      this.container.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.15)';
+      this.container.style.borderRadius = '8px';
+      this.container.style.padding = '20px';
       this.container.style.zIndex = '2147483647'; // 최대 z-index 값으로 설정
       this.container.style.border = '2px solid #1a73e8'; // 테두리 추가
       this.container.style.transition = 'opacity 0.3s ease-in-out, transform 0.3s ease-in-out';
@@ -197,7 +206,20 @@
                 <a href="${source.url}" target="_blank" style="color: #1a73e8; text-decoration: none;">${source.title || '제목 없음'}</a>
               </div>
               <div class="source-snippet">${source.content || '내용 없음'}</div>
-              <div class="source-relevance">관련성: ${Math.round(source.relevanceScore * 100)}%</div>
+              <div class="source-relevance">관련성: ${Math.round((source.relevanceScore || 0) * 100)}%</div>
+            </div>
+          `;
+        });
+      } else if (data.searchResults && data.searchResults.length > 0) {
+        // 이전 버전과 호환성 유지
+        data.searchResults.forEach(source => {
+          sourcesHTML += `
+            <div class="source-item">
+              <div class="source-title">
+                <a href="${source.url}" target="_blank" style="color: #1a73e8; text-decoration: none;">${source.title || '제목 없음'}</a>
+              </div>
+              <div class="source-snippet">${source.content || source.snippet || '내용 없음'}</div>
+              <div class="source-relevance">관련성: ${Math.round((source.relevanceScore || source.score || 0) * 100)}%</div>
             </div>
           `;
         });
@@ -244,47 +266,52 @@
       // HTML 생성
       content.innerHTML = `
         <div style="padding: 0 0 20px">
-          <div class="score-badge">
-            <span class="material-icons" style="font-size: 32px; color: ${trustColor};">${trustIcon}</span>
-            <span class="score-number" style="color: ${trustColor};">${Math.round(score * 100)}%</span>
+          <div class="score-badge" style="display: flex; align-items: center; margin-bottom: 16px;">
+            <span class="material-icons" style="font-size: 32px; color: ${trustColor}; margin-right: 8px;">${trustIcon}</span>
+            <span class="score-number" style="color: ${trustColor}; font-size: 24px; font-weight: bold;">${Math.round(score * 100)}%</span>
           </div>
           
-          <div class="verdict ${score >= 0.8 ? 'true' : (score >= 0.5 ? 'partly-true' : 'false')}">
+          <div class="verdict ${score >= 0.8 ? 'true' : (score >= 0.5 ? 'partly-true' : 'false')}" style="background-color: ${trustColor}20; padding: 10px; border-radius: 6px; color: ${trustColor}; font-weight: bold; margin-bottom: 16px; text-align: center;">
             <strong>검증 결과:</strong> ${data.verdict || trustText}
           </div>
           
-          <div style="margin-bottom: 15px;">
-            <div class="section-title">요약</div>
-            <p style="margin: 0; line-height: 1.5; color: #333;">${data.summary || '요약 정보가 없습니다.'}</p>
+          <div style="margin-bottom: 20px; background-color: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 4px solid #1a73e8;">
+            <div class="section-title" style="font-weight: bold; color: #1a73e8; margin-bottom: 8px; font-size: 15px;">검증 결과 설명</div>
+            <p style="margin: 0; line-height: 1.6; color: #333;">${data.explanation || `${data.searchResultsCount || data.sourcesCount || 0}개의 출처를 검토한 결과, 이 주장은 ${score < 0.3 ? '사실이 아닐' : (score < 0.5 ? '신뢰하기 어려울' : (score < 0.8 ? '부분적으로 사실일' : '사실일'))} 가능성이 높습니다. 주요 주장의 검증 결과, ${Math.round(score * 100)}% 신뢰도를 보이며, ${score < 0.5 ? '사실 확인이 필요합니다.' : (score < 0.8 ? '일부 주장은 사실 확인이 필요합니다.' : '사실로 확인됩니다.')}`}</p>
+          </div>
+          
+          <div style="margin-bottom: 20px; background-color: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 4px solid #1a73e8;">
+            <div class="section-title" style="font-weight: bold; color: #1a73e8; margin-bottom: 8px; font-size: 15px;">요약</div>
+            <p style="margin: 0; line-height: 1.6; color: #333;">${data.summary || '이 콘텐츠의 요약을 생성할 수 없습니다.'}</p>
           </div>
           
           ${data.verifiedClaims && data.verifiedClaims.length > 0 ? `
-            <div style="margin-bottom: 15px;">
-              <div class="section-title">검증된 주장</div>
+            <div style="margin-bottom: 20px; background-color: #f8f9fa; padding: 12px; border-radius: 6px;">
+              <div class="section-title" style="font-weight: bold; color: #1a73e8; margin-bottom: 8px; font-size: 15px;">검증된 주장</div>
               ${claimsHTML}
             </div>
           ` : ''}
           
           ${data.mainPoints && data.mainPoints.length > 0 ? `
-            <div style="margin-bottom: 15px;">
-              <div class="section-title">주요 분석 포인트</div>
+            <div style="margin-bottom: 20px; background-color: #f8f9fa; padding: 12px; border-radius: 6px;">
+              <div class="section-title" style="font-weight: bold; color: #1a73e8; margin-bottom: 8px; font-size: 15px;">주요 분석 포인트</div>
               ${mainPointsHTML}
             </div>
           ` : ''}
           
-          <div style="margin-bottom: 15px;">
-            <div class="section-title">참고 자료</div>
+          <div style="margin-bottom: 20px; background-color: #f8f9fa; padding: 12px; border-radius: 6px;">
+            <div class="section-title" style="font-weight: bold; color: #1a73e8; margin-bottom: 8px; font-size: 15px;">참고 자료</div>
             ${sourcesHTML}
           </div>
           
           ${relatedArticlesHTML ? `
-            <div style="margin-bottom: 15px;">
-              <div class="section-title">관련 기사</div>
+            <div style="margin-bottom: 20px; background-color: #f8f9fa; padding: 12px; border-radius: 6px;">
+              <div class="section-title" style="font-weight: bold; color: #1a73e8; margin-bottom: 8px; font-size: 15px;">관련 기사</div>
               ${relatedArticlesHTML}
             </div>
           ` : ''}
           
-          <div class="footer">
+          <div class="footer" style="font-size: 12px; color: #666; text-align: right;">
             분석 시간: ${metadata.verifiedAt ? new Date(metadata.verifiedAt).toLocaleString() : new Date().toLocaleString()}
           </div>
         </div>
@@ -636,13 +663,173 @@
       });
     }
 
-    setupMessageListener() {
-      console.log('[FactChecker] 메시지 리스너 설정 시작', {
-        timestamp: new Date().toISOString(),
-        context: 'content.js'
-      });
+    async generateSummaryAndVerify() {
+      try {
+        // 뉴스 콘텐츠 추출
+        const extractedContent = await this.extractNewsContent();
+        
+        if (!extractedContent || !extractedContent.title || !extractedContent.content) {
+          console.error('[FactChecker] 콘텐츠 추출 실패');
+          this.showError('뉴스 내용을 추출할 수 없습니다');
+          return;
+        }
+        
+        // 로딩 표시
+        this.showLoading('콘텐츠 요약 및 검증 중...');
+        
+        // 백그라운드 스크립트에 요약 및 검증 요청
+        chrome.runtime.sendMessage({
+          action: 'summarizeAndVerify',
+          data: {
+            title: extractedContent.title,
+            content: extractedContent.content,
+            url: window.location.href
+          }
+        }, response => {
+          console.log('[FactChecker] 요약 및 검증 결과:', response);
+          
+          if (response && response.success) {
+            // 검증 결과 표시
+            this.showSummaryVerification(response);
+          } else {
+            // 오류 표시
+            this.showError(response?.error || '요약 및 검증 중 오류가 발생했습니다');
+          }
+        });
+      } catch (error) {
+        console.error('[FactChecker] 요약 및 검증 오류:', error);
+        this.showError('요약 및 검증 과정에서 오류가 발생했습니다');
+      }
+    }
+
+    showSummaryVerification(data) {
+      const content = document.getElementById('fact-check-content');
+      if (!content) return;
       
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!data) {
+        this.showError('검증 결과를 받아오지 못했습니다.');
+        return;
+      }
+      
+      // 신뢰도 점수에 따른 색상 및 아이콘 설정
+      let trustColor, trustIcon, trustText;
+      const score = data.trustScore || 0.5;
+      
+      if (score >= 0.8) {
+        trustColor = '#4CAF50';
+        trustIcon = 'verified';
+        trustText = '신뢰할 수 있음';
+      } else if (score >= 0.5) {
+        trustColor = '#FF9800';
+        trustIcon = 'warning';
+        trustText = '부분적으로 신뢰할 수 있음';
+      } else {
+        trustColor = '#F44336';
+        trustIcon = 'dangerous';
+        trustText = '신뢰할 수 없음';
+      }
+      
+      // 판정 텍스트 설정
+      let verdictText = '확인 불가';
+      switch(data.verdict) {
+        case 'true':
+          verdictText = '사실';
+          break;
+        case 'mostly_true':
+          verdictText = '대체로 사실';
+          break;
+        case 'partially_true':
+          verdictText = '부분적 사실';
+          break;
+        case 'mostly_false':
+          verdictText = '대체로 사실 아님';
+          break;
+        case 'false':
+          verdictText = '사실 아님';
+          break;
+      }
+      
+      // 소스 섹션 생성
+      let sourcesHTML = '';
+      if (data.sources && data.sources.length > 0) {
+        data.sources.forEach(source => {
+          sourcesHTML += `
+            <div class="source-item" style="margin-bottom: 16px; padding: 12px; background-color: #f8f9fa; border-radius: 4px;">
+              <div class="source-title" style="font-weight: 500; margin-bottom: 8px;">
+                <a href="${source.url}" target="_blank" style="color: #1a73e8; text-decoration: none;">${source.title || '제목 없음'}</a>
+              </div>
+              <div class="source-meta" style="font-size: 12px; color: #5f6368; margin-bottom: 4px;">
+                출처: ${source.source || '알 수 없음'}
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        sourcesHTML = '<p style="color: #666; font-style: italic;">참고 자료를 찾을 수 없습니다.</p>';
+      }
+      
+      // HTML 생성
+      content.innerHTML = `
+        <div style="padding: 0 0 20px">
+          <div style="margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; margin-bottom: 16px;">
+              <span class="material-icons" style="font-size: 28px; color: ${trustColor}; margin-right: 12px;">${trustIcon}</span>
+              <div>
+                <div style="font-weight: 600; font-size: 18px; color: ${trustColor};">${verdictText}</div>
+                <div style="color: #5f6368; font-size: 14px;">신뢰도: ${Math.round(score * 100)}%</div>
+              </div>
+            </div>
+            
+            <div style="margin-bottom: 24px;">
+              <h3 style="font-size: 16px; color: #202124; margin-bottom: 8px;">요약</h3>
+              <p style="color: #3c4043; line-height: 1.5;">${data.summary || '요약을 생성할 수 없습니다.'}</p>
+            </div>
+            
+            <div style="margin-bottom: 24px;">
+              <h3 style="font-size: 16px; color: #202124; margin-bottom: 8px;">핵심 키워드</h3>
+              <div style="display: inline-block; background-color: #e8f0fe; color: #1967d2; font-weight: 500; padding: 4px 8px; border-radius: 4px;">
+                ${data.keyword || '키워드 없음'}
+              </div>
+            </div>
+            
+            <div style="margin-bottom: 24px;">
+              <h3 style="font-size: 16px; color: #202124; margin-bottom: 8px;">검증 결과</h3>
+              <p style="color: #3c4043; line-height: 1.5;">${data.explanation || '검증 설명을 생성할 수 없습니다.'}</p>
+            </div>
+            
+            <div>
+              <h3 style="font-size: 16px; color: #202124; margin-bottom: 8px;">참고 자료</h3>
+              ${sourcesHTML}
+            </div>
+          </div>
+          
+          <div style="display: flex; justify-content: center;">
+            <button id="retryVerification" style="padding: 8px 16px; background-color: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px; color: #3c4043; cursor: pointer; font-weight: 500;">
+              다시 검증하기
+            </button>
+          </div>
+        </div>
+      `;
+      
+      // 다시 검증하기 버튼 이벤트 리스너
+      const retryButton = document.getElementById('retryVerification');
+      if (retryButton) {
+        retryButton.addEventListener('click', () => {
+          this.verifyCurrentPage();
+        });
+      }
+      
+      this.show();
+    }
+
+    setupMessageListener() {
+      // 이미 추가된 리스너가 있으면 제거 (중복 리스너 방지)
+      if (this.messageListener) {
+        chrome.runtime.onMessage.removeListener(this.messageListener);
+      }
+      
+      // 메시지 리스너 정의 및 등록
+      this.messageListener = (message, sender, sendResponse) => {
         console.log('[FactChecker] 메시지 수신:', message, {
           sender: sender?.id || '불명',
           hasCallback: !!sendResponse,
@@ -685,13 +872,145 @@
           return true;
         }
         
+        // 새로 추가된 기능들
+        if (message.action === 'verify') {
+          this.verifyCurrentPage();
+          sendResponse({success: true});
+          return true;
+        } 
+        
+        if (message.action === 'summarizeAndVerify') {
+          this.generateSummaryAndVerify();
+          sendResponse({success: true});
+          return true;
+        }
+        
+        if (message.action === 'showResult') {
+          if (message.data) {
+            this.showResult(message.data);
+            sendResponse({success: true});
+          } else {
+            this.showError('검증 결과가 없습니다.');
+            sendResponse({success: false, error: '검증 결과가 없습니다.'});
+          }
+          return true;
+        }
+        
+        if (message.action === 'isActive') {
+          sendResponse({isActive: this.isActive});
+          return true;
+        }
+        
+        // 새로 추가: 키워드 추출 및 검색
+        if (message.action === 'extractKeywordAndSearch') {
+          const claims = message.claims || this.extractNewsContent();
+          
+          if (!claims || (Array.isArray(claims) && claims.length === 0)) {
+            this.showError('검색할 주장을 찾을 수 없습니다.');
+            sendResponse({success: false, error: '검색할 주장을 찾을 수 없습니다.'});
+            return true;
+          }
+          
+          this.extractKeywordAndSearch(claims)
+            .then(result => {
+              sendResponse({success: true, result});
+            })
+            .catch(error => {
+              sendResponse({success: false, error: error.message});
+            });
+          
+          return true;
+        }
+        
         console.log('[FactChecker] 알 수 없는 메시지 액션:', message.action);
         return false;
-      });
+      };
       
-      console.log('[FactChecker] 메시지 리스너 설정 완료', {
-        timestamp: new Date().toISOString()
-      });
+      // 리스너 등록
+      chrome.runtime.onMessage.addListener(this.messageListener);
+    }
+
+    /**
+     * 주장에서 키워드를 추출하고 검색 결과를 표시합니다
+     * @param {Array|string} claims - 검색할 주장 배열 또는 문자열
+     */
+    async extractKeywordAndSearch(claims) {
+      try {
+        this.showLoading();
+        console.log('[FactChecker] 주장에서 키워드 추출 및 검색 시작:', claims);
+        
+        const result = await extractKeywordAndSearchFromClaims(claims);
+        this.showKeywordSearchResult(result);
+        
+        return result;
+      } catch (error) {
+        console.error('[FactChecker] 키워드 추출 및 검색 오류:', error);
+        this.showError(`키워드 추출 및 검색 중 오류가 발생했습니다: ${error.message}`);
+        throw error;
+      }
+    }
+    
+    /**
+     * 키워드 검색 결과를 표시합니다
+     * @param {Object} data - 키워드 검색 결과 데이터
+     */
+    showKeywordSearchResult(data) {
+      const content = document.getElementById('fact-check-content');
+      if (!content) return;
+      
+      if (!data || !data.keyword) {
+        this.showError('키워드 추출 결과를 받아오지 못했습니다.');
+        return;
+      }
+      
+      let tavilyResultsHTML = '<p>결과 없음</p>';
+      if (data.tavilyResults && data.tavilyResults.results && data.tavilyResults.results.length > 0) {
+        tavilyResultsHTML = '<ul style="padding-left: 20px;">';
+        data.tavilyResults.results.slice(0, 5).forEach(result => {
+          tavilyResultsHTML += `
+            <li style="margin-bottom: 10px;">
+              <a href="${result.url}" target="_blank" style="color: #1a73e8; text-decoration: none; font-weight: 500;">${result.title || '제목 없음'}</a>
+              <div style="font-size: 12px; color: #5f6368; margin-top: 4px;">${result.content || result.snippet || '내용 없음'}</div>
+            </li>
+          `;
+        });
+        tavilyResultsHTML += '</ul>';
+      }
+      
+      let braveResultsHTML = '<p>결과 없음</p>';
+      if (data.braveResults && data.braveResults.results && data.braveResults.results.length > 0) {
+        braveResultsHTML = '<ul style="padding-left: 20px;">';
+        data.braveResults.results.slice(0, 5).forEach(result => {
+          braveResultsHTML += `
+            <li style="margin-bottom: 10px;">
+              <a href="${result.url}" target="_blank" style="color: #1a73e8; text-decoration: none; font-weight: 500;">${result.title || result.name || '제목 없음'}</a>
+              <div style="font-size: 12px; color: #5f6368; margin-top: 4px;">${result.content || result.description || '내용 없음'}</div>
+            </li>
+          `;
+        });
+        braveResultsHTML += '</ul>';
+      }
+      
+      content.innerHTML = `
+        <div style="padding: 10px 0;">
+          <h3 style="margin: 0 0 15px 0; color: #202124; font-size: 16px;">추출된 핵심 키워드</h3>
+          <div style="background-color: #e8f0fe; color: #1967d2; padding: 10px 15px; border-radius: 4px; display: inline-block; font-weight: 500;">
+            ${data.keyword}
+          </div>
+          
+          <div style="margin-top: 25px;">
+            <h3 style="margin: 0 0 10px 0; color: #202124; font-size: 16px;">Tavily 검색 결과</h3>
+            ${tavilyResultsHTML}
+          </div>
+          
+          <div style="margin-top: 25px;">
+            <h3 style="margin: 0 0 10px 0; color: #202124; font-size: 16px;">Brave 검색 결과</h3>
+            ${braveResultsHTML}
+          </div>
+        </div>
+      `;
+      
+      this.show();
     }
   }
 
@@ -699,4 +1018,29 @@
   const overlay = new FactCheckOverlay();
 
   console.log('[FactChecker] 콘텐츠 스크립트 초기화 완료');
+
+  /**
+   * 주장에서 키워드 추출 및 검색 함수
+   * @param {Array|string} claims - 검색할 주장 배열 또는 문자열
+   * @returns {Promise<Object>} - 키워드 추출 및 검색 결과
+   */
+  async function extractKeywordAndSearchFromClaims(claims) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: 'extractKeywordAndSearch', claims },
+        response => {
+          if (chrome.runtime.lastError) {
+            console.error('[FactChecker] 키워드 추출 오류:', chrome.runtime.lastError);
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response && response.success) {
+            console.log('[FactChecker] 키워드 추출 및 검색 성공:', response.keyword);
+            resolve(response);
+          } else {
+            console.error('[FactChecker] 키워드 추출 실패:', response?.error || '알 수 없는 오류');
+            reject(new Error(response?.error || '키워드 추출에 실패했습니다'));
+          }
+        }
+      );
+    });
+  }
 })(); 

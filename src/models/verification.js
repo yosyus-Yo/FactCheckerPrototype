@@ -25,8 +25,8 @@ const VerificationSchema = new mongoose.Schema({
   },
   verdict: {
     type: String,
-    enum: ['사실', '부분적 사실', '허위', '확인불가'],
-    default: '확인불가'
+    enum: ['TRUE', 'LIKELY_TRUE', 'UNCERTAIN', 'LIKELY_FALSE', 'FALSE', 'NO_CLAIMS', '사실', '부분적 사실', '확인불가', '허위'],
+    default: 'UNCERTAIN'
   },
   sources: [{
     title: String,
